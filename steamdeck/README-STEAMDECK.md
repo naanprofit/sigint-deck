@@ -306,6 +306,77 @@ Features:
 
 ## Troubleshooting
 
+### No WiFi devices detected (most common issue)
+
+**Symptoms:**
+- Dashboard shows 0 WiFi devices
+- BLE devices work fine
+- Logs may show "Permission denied" or channel hop errors
+
+**Cause:** External WiFi adapter is not in monitor mode (probably in "managed" mode and connected to a network).
+
+**Diagnosis:**
+```bash
+# Check current mode
+iw dev wlan1 info | grep type
+# If it says "managed" instead of "monitor", that's the problem
+```
+
+**Solution:**
+```bash
+# Option 1: Use the helper script
+sudo ~/sigint-deck/enable-monitor.sh wlan1
+systemctl --user restart sigint-deck
+
+# Option 2: Manual steps
+sudo nmcli device disconnect wlan1
+sudo nmcli device set wlan1 managed no
+sudo ip link set wlan1 down
+sudo iw wlan1 set type monitor  
+sudo ip link set wlan1 up
+systemctl --user restart sigint-deck
+
+# Verify it worked
+iw dev wlan1 info | grep type  # Should show "monitor"
+curl -s http://localhost:8080/api/wifi/devices | python3 -c "import json,sys; print(f'WiFi devices: {len(json.load(sys.stdin))}')"
+```
+
+**Prevention:** The installer sets up a systemd service to enable monitor mode at boot. If it's not working:
+```bash
+sudo systemctl enable sigint-monitor-mode
+sudo systemctl start sigint-monitor-mode
+```
+
+### Channel hop errors: "Device or resource busy (-16)"
+
+**Symptoms:**
+- Logs show `Channel hop failed: command failed: Device or resource busy (-16)`
+
+**Cause:** This is normal and happens briefly when the adapter is busy processing packets.
+
+**Solution:** No action needed. WiFi capture still works. If ALL channel hops fail continuously:
+```bash
+# Re-enable monitor mode
+sudo ~/sigint-deck/enable-monitor.sh wlan1
+systemctl --user restart sigint-deck
+```
+
+### Service stuck stopping / won't restart
+
+**Symptoms:**
+- `systemctl --user restart sigint-deck` hangs
+- Status shows "deactivating (stop-sigterm)"
+
+**Solution:**
+```bash
+# Force kill
+pkill -9 sigint-deck
+
+# Reset and restart
+systemctl --user reset-failed sigint-deck
+systemctl --user start sigint-deck channel-hop
+```
+
 ### External adapter steals wlan0 / gets wrong name
 
 **Symptoms:**
@@ -316,7 +387,7 @@ Features:
 **Solution:**
 1. Run the setup script:
    ```bash
-   sudo ~/sigint-pi/setup-steamdeck.sh
+   sudo ~/sigint-deck/setup-steamdeck.sh
    ```
 2. Unplug the external WiFi adapter
 3. Wait 5 seconds
@@ -327,7 +398,7 @@ Features:
    ip link show wlan1  # External
    ```
 
-### WiFi scanner not working
+### WiFi scanner not working (interface not found)
 
 **Symptoms:**
 - Dashboard shows 0 WiFi devices

@@ -549,31 +549,59 @@ add_to_steam() {
 
 # Enable monitor mode helper
 setup_monitor_mode() {
-    echo -e "${BLUE}Setting up monitor mode service...${NC}"
+    echo -e "${BLUE}Setting up monitor mode...${NC}"
     
     # Create monitor mode script
     cat > "$INSTALL_DIR/enable-monitor.sh" << 'EOF'
 #!/bin/bash
+# Enable monitor mode on external WiFi adapter
+# Run with sudo or as root
+
 IFACE=${1:-wlan1}
+
+echo "Enabling monitor mode on $IFACE..."
+
+# Disconnect from any network and disable NetworkManager control
+nmcli device disconnect $IFACE 2>/dev/null || true
+nmcli device set $IFACE managed no 2>/dev/null || true
+
+# Set monitor mode
 ip link set $IFACE down
 iw $IFACE set type monitor
 ip link set $IFACE up
-echo "Monitor mode enabled on $IFACE"
+
+# Verify
+MODE=$(iw dev $IFACE info 2>/dev/null | grep type | awk '{print $2}')
+if [ "$MODE" = "monitor" ]; then
+    echo "✓ Monitor mode enabled on $IFACE"
+else
+    echo "✗ Failed to enable monitor mode on $IFACE"
+    exit 1
+fi
 EOF
     chmod +x "$INSTALL_DIR/enable-monitor.sh"
     
-    # Create systemd service
+    # Create systemd service that runs at boot
     sudo tee /etc/systemd/system/sigint-monitor-mode.service > /dev/null << EOF
 [Unit]
-Description=Enable monitor mode on wlan1
-After=network.target
+Description=Enable monitor mode on wlan1 for SIGINT-Deck
+After=network.target NetworkManager.service
+Wants=network.target
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
+# Disconnect from NetworkManager
+ExecStart=/usr/bin/nmcli device disconnect wlan1
+ExecStart=/usr/bin/nmcli device set wlan1 managed no
+# Set monitor mode
 ExecStart=/usr/bin/ip link set wlan1 down
 ExecStart=/usr/bin/iw wlan1 set type monitor
 ExecStart=/usr/bin/ip link set wlan1 up
-RemainAfterExit=yes
+# On stop, restore managed mode
+ExecStop=/usr/bin/ip link set wlan1 down
+ExecStop=/usr/bin/iw wlan1 set type managed
+ExecStop=/usr/bin/nmcli device set wlan1 managed yes
 
 [Install]
 WantedBy=multi-user.target
@@ -582,7 +610,23 @@ EOF
     sudo systemctl daemon-reload
     sudo systemctl enable sigint-monitor-mode.service
     
-    echo -e "${GREEN}✓ Monitor mode service created${NC}"
+    # Also configure NetworkManager to ignore wlan1 permanently
+    sudo mkdir -p /etc/NetworkManager/conf.d
+    sudo tee /etc/NetworkManager/conf.d/90-sigint-unmanaged.conf > /dev/null << EOF
+# SIGINT-Deck: Don't let NetworkManager control the external WiFi adapter
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF
+    
+    # Restart NetworkManager to apply
+    sudo systemctl restart NetworkManager 2>/dev/null || true
+    
+    # Enable monitor mode now
+    echo "Enabling monitor mode now..."
+    sudo "$INSTALL_DIR/enable-monitor.sh" wlan1 || true
+    
+    echo -e "${GREEN}✓ Monitor mode configured${NC}"
+    echo -e "${YELLOW}Note: Monitor mode will be enabled automatically at boot${NC}"
 }
 
 # Print final instructions
@@ -594,27 +638,48 @@ print_summary() {
     echo ""
     echo "Installation directory: $INSTALL_DIR"
     echo ""
-    echo -e "${BLUE}Next Steps:${NC}"
-    echo ""
-    echo "1. ${YELLOW}Unplug and replug your USB WiFi adapter${NC}"
-    echo ""
-    echo "2. Enable monitor mode:"
-    echo "   sudo systemctl start sigint-monitor-mode"
-    echo ""
-    echo "3. Start SIGINT-Deck:"
-    echo "   systemctl --user start sigint-deck"
-    echo "   systemctl --user start channel-hop"
-    echo ""
-    echo "4. Open dashboard:"
-    echo "   http://localhost:8080"
+    echo -e "${BLUE}Starting Services...${NC}"
+    
+    # Start services now
+    systemctl --user start sigint-deck channel-hop 2>/dev/null
+    sleep 2
+    
+    # Check if running
+    if systemctl --user is-active sigint-deck >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ SIGINT-Deck is running${NC}"
+        echo -e "${GREEN}✓ Dashboard: http://localhost:8080${NC}"
+    else
+        echo -e "${YELLOW}⚠ Service may need manual start (see troubleshooting below)${NC}"
+    fi
     echo ""
     echo -e "${BLUE}Quick Commands:${NC}"
     echo "  Start:   systemctl --user start sigint-deck channel-hop"
     echo "  Stop:    systemctl --user stop sigint-deck channel-hop"
     echo "  Status:  systemctl --user status sigint-deck"
     echo "  Logs:    journalctl --user -u sigint-deck -f"
+    echo "  TUI:     $INSTALL_DIR/sigint-deck --tui"
     echo ""
-    echo -e "${YELLOW}IMPORTANT: This tool is for authorized security research only.${NC}"
+    echo -e "${BLUE}Troubleshooting:${NC}"
+    echo ""
+    echo "  ${YELLOW}No WiFi devices detected?${NC}"
+    echo "  The adapter must be in monitor mode. Check and fix with:"
+    echo "    iw dev wlan1 info | grep type    # Should show 'monitor'"
+    echo "    sudo $INSTALL_DIR/enable-monitor.sh wlan1"
+    echo "    systemctl --user restart sigint-deck"
+    echo ""
+    echo "  ${YELLOW}Interface busy or wrong mode?${NC}"
+    echo "  NetworkManager may be controlling the adapter. Fix with:"
+    echo "    sudo nmcli device set wlan1 managed no"
+    echo "    sudo systemctl restart sigint-monitor-mode"
+    echo ""
+    echo "  ${YELLOW}Service won't start?${NC}"
+    echo "    journalctl --user -u sigint-deck -n 50  # Check logs"
+    echo ""
+    echo "  ${YELLOW}Channel hopping errors?${NC}"
+    echo "  Normal when adapter is busy. WiFi capture still works."
+    echo ""
+    echo -e "${RED}IMPORTANT: This tool is for authorized security research only.${NC}"
+    echo -e "${RED}Only monitor networks you own or have permission to test.${NC}"
     echo ""
 }
 
