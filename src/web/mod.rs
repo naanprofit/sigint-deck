@@ -4,13 +4,64 @@ pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, Ha
 
 use actix_web::{web, App, HttpServer, middleware};
 use std::sync::Arc;
+use std::path::PathBuf;
 use tokio::sync::broadcast;
 use anyhow::Result;
 use chrono::Utc;
+use tracing::{info, warn};
 
 use crate::config::Config;
 use crate::storage::Database;
 use crate::ScanEvent;
+
+/// Find the static files directory
+/// Tries multiple locations to support different deployment scenarios
+fn find_static_dir() -> Option<PathBuf> {
+    // Get current working directory
+    let cwd = std::env::current_dir().ok();
+    
+    // Get executable directory
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    
+    // Locations to try, in order of preference
+    let candidates = [
+        // 1. ./static (relative to cwd)
+        cwd.as_ref().map(|d| d.join("static")),
+        // 2. Next to executable
+        exe_dir.as_ref().map(|d| d.join("static")),
+        // 3. /app/static (container)
+        Some(PathBuf::from("/app/static")),
+        // 4. ~/sigint-deck/static (user install)
+        dirs::home_dir().map(|h| h.join("sigint-deck").join("static")),
+    ];
+    
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.exists() && candidate.is_dir() {
+            // Verify index.html exists
+            if candidate.join("index.html").exists() {
+                info!("Found static directory at: {:?}", candidate);
+                return Some(candidate);
+            }
+        }
+    }
+    
+    warn!("Static files directory not found! Web dashboard will not be available.");
+    warn!("Searched locations:");
+    if let Some(ref d) = cwd {
+        warn!("  - {:?}/static", d);
+    }
+    if let Some(ref d) = exe_dir {
+        warn!("  - {:?}/static", d);
+    }
+    warn!("  - /app/static");
+    if let Some(h) = dirs::home_dir() {
+        warn!("  - {:?}/sigint-deck/static", h);
+    }
+    
+    None
+}
 
 pub async fn start_server(
     db: Arc<Database>,
@@ -146,16 +197,33 @@ pub async fn start_server(
         }
     });
     
+    // Determine static files directory
+    // Try multiple locations: ./static, ../static, or relative to executable
+    let static_dir = find_static_dir();
+    info!("Static files directory: {:?}", static_dir);
+    
     // Run actix in its own system
     let server = HttpServer::new(move || {
-        App::new()
+        let mut app = App::new()
             .app_data(db_data.clone())
             .app_data(config_data.clone())
             .app_data(state_data.clone())
             .wrap(middleware::Logger::default())
             .wrap(middleware::Compress::default())
-            .configure(api::configure)
-            .service(actix_files::Files::new("/", "./static").index_file("index.html"))
+            .configure(api::configure);
+        
+        // Only add static file service if directory exists
+        if let Some(ref dir) = static_dir {
+            if dir.exists() {
+                app = app.service(
+                    actix_files::Files::new("/", dir.clone())
+                        .index_file("index.html")
+                        .prefer_utf8(true)
+                );
+            }
+        }
+        
+        app
     })
     .bind(&bind_addr)?
     .run();
