@@ -667,7 +667,7 @@ pub async fn get_llm_settings(
             id: "llamacpp",
             name: "llama.cpp Server",
             description: "Local llama.cpp with OpenAI-compatible API",
-            default_endpoint: "http://localhost:8080",
+            default_endpoint: "http://localhost:11434",
             requires_api_key: false,
         },
         ProviderInfo {
@@ -695,7 +695,7 @@ pub async fn get_llm_settings(
             id: "custom",
             name: "Custom Endpoint",
             description: "Any OpenAI-compatible API",
-            default_endpoint: "http://localhost:8080/v1",
+            default_endpoint: "http://localhost:8080/v1",  // Custom endpoint - user must configure
             requires_api_key: false,
         },
     ];
@@ -705,7 +705,7 @@ pub async fn get_llm_settings(
     HttpResponse::Ok().json(LlmSettingsResponse {
         enabled: llm_config.map(|c| c.enabled).unwrap_or(false),
         provider: llm_config.map(|c| c.provider.clone()).unwrap_or_else(|| "llamacpp".to_string()),
-        endpoint: llm_config.map(|c| c.endpoint.clone()).unwrap_or_else(|| "http://localhost:8080".to_string()),
+        endpoint: llm_config.map(|c| c.endpoint.clone()).unwrap_or_else(|| "http://localhost:11434".to_string()),
         model: llm_config.map(|c| c.model.clone()).unwrap_or_else(|| "default".to_string()),
         has_api_key: llm_config.and_then(|c| c.api_key.as_ref()).map(|k| !k.is_empty()).unwrap_or(false),
         max_tokens: llm_config.map(|c| c.max_tokens).unwrap_or(200),

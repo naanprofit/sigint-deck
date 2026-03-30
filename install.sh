@@ -295,9 +295,9 @@ volume = 70
 
 [llm]
 enabled = false
-provider = "llamacpp"
-endpoint = "http://localhost:8080/v1"
-model = "local"
+provider = "ollama"
+endpoint = "http://localhost:11434"
+model = "tinyllama"
 max_tokens = 200
 timeout_secs = 60
 EOF

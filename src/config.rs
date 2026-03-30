@@ -48,7 +48,7 @@ impl Default for LlmConfig {
         Self {
             enabled: false,
             provider: "llamacpp".to_string(),
-            endpoint: "http://localhost:8080".to_string(),
+            endpoint: "http://localhost:11434".to_string(),
             api_key: None,
             model: "default".to_string(),
             max_tokens: 200,

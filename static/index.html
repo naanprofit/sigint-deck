@@ -872,7 +872,7 @@
                 </div>
                 <div class="setting-item" style="grid-column: span 2;">
                     <label>Endpoint</label>
-                    <input type="text" id="llmEndpoint" placeholder="http://localhost:8080/v1" style="width: 100%;">
+                    <input type="text" id="llmEndpoint" placeholder="http://localhost:11434" style="width: 100%;">
                 </div>
             </div>
             <button id="testLlm" class="action-btn" style="margin-top: 0.5rem;">Test Connection</button>
@@ -1581,7 +1581,7 @@
                         llm: {
                             enabled: document.getElementById('aiToggle')?.classList.contains('active') || false,
                             provider: document.getElementById('llmProvider')?.value || 'llamacpp',
-                            endpoint: document.getElementById('llmEndpoint')?.value || 'http://localhost:8080/v1'
+                            endpoint: document.getElementById('llmEndpoint')?.value || 'http://localhost:11434'
                         }
                     };
                     
