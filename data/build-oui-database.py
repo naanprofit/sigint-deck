@@ -20,6 +20,10 @@ THREAT_CATEGORIES = {
         "level": "critical", 
         "description": "US Intelligence Community contractors"
     },
+    "five_eyes": {
+        "level": "critical",
+        "description": "Five Eyes alliance intelligence equipment"
+    },
     "law_enforcement": {
         "level": "high",
         "description": "Law enforcement / Police equipment"
@@ -30,15 +34,43 @@ THREAT_CATEGORIES = {
     },
     "chinese_state": {
         "level": "high",
-        "description": "Chinese state-affiliated companies"
+        "description": "Chinese state-affiliated companies (PLA/MSS linked)"
     },
     "russian_state": {
         "level": "high",
-        "description": "Russian state-affiliated companies"
+        "description": "Russian state-affiliated companies (FSB/GRU linked)"
     },
     "israeli_intel": {
         "level": "high",
-        "description": "Israeli intelligence/defense contractors"
+        "description": "Israeli intelligence/defense contractors (Unit 8200)"
+    },
+    "uk_defense": {
+        "level": "high",
+        "description": "UK defense/intelligence contractors (GCHQ)"
+    },
+    "german_intel": {
+        "level": "high",
+        "description": "German intelligence/defense (BND)"
+    },
+    "french_intel": {
+        "level": "high",
+        "description": "French intelligence/defense (DGSE)"
+    },
+    "middle_east_intel": {
+        "level": "high",
+        "description": "Middle Eastern intelligence/defense"
+    },
+    "asian_defense": {
+        "level": "medium",
+        "description": "Asian defense contractors"
+    },
+    "spyware_vendor": {
+        "level": "critical",
+        "description": "Known spyware/surveillance software vendors"
+    },
+    "ecm_jamming": {
+        "level": "high",
+        "description": "Electronic countermeasures / jamming equipment"
     },
     "tracking": {
         "level": "medium",
@@ -54,59 +86,108 @@ THREAT_CATEGORIES = {
 THREAT_KEYWORDS = {
     "us_defense": [
         "raytheon", "lockheed", "northrop", "general dynamics", "boeing defense",
-        "l3harris", "l-3", "harris corp", "bae systems", "leidos",
-        "saic", "caci", "booz allen", "mantech", "perspecta",
+        "l3harris", "l-3", "harris corp", "leidos", "huntington ingalls",
+        "saic", "caci", "booz allen", "mantech", "perspecta", "draper laboratory",
         "army", "navy", "air force", "marine", "dod ", "department of defense",
-        "pentagon", "darpa", "nsa ", "cia ", "dhs ", "fbi ",
-        "sandia", "los alamos", "lawrence livermore", "oak ridge",
-        "mitre", "aerospace corporation", "rand corporation"
+        "pentagon", "darpa", "nsa ", "cia ", "dhs ", "fbi ", "nro ",
+        "sandia", "los alamos", "lawrence livermore", "oak ridge", "argonne",
+        "mitre", "aerospace corporation", "rand corporation", "lincoln laboratory",
+        "applied physics laboratory", "johns hopkins apl", "naval research",
+        "air force research", "army research", "defense advanced"
     ],
     "us_intel": [
-        "palantir", "clearview", "anduril", "babel street",
-        "voyager labs", "shadowdragon", "cobwebs", "media sonar",
-        "pen-link", "penlink", "i2 group", "verint", "nice systems",
-        "ss8", "utimaco", "trovicor", "gamma group", "hacking team"
+        "palantir", "clearview", "anduril", "babel street", "recorded future",
+        "voyager labs", "shadowdragon", "cobwebs", "media sonar", "maltego",
+        "pen-link", "penlink", "i2 group", "ss8", "utimaco", "trovicor",
+        "in-q-tel", "keyhole", "intellibridge", "intellicheck"
+    ],
+    "five_eyes": [
+        "gchq", "cse canada", "asd australia", "gcsb new zealand",
+        "defence signals", "communications security establishment"
     ],
     "law_enforcement": [
         "motorola solutions", "axon", "taser", "vigilant solutions",
         "shotspotter", "cellebrite", "grayshift", "magnet forensics",
         "msab", "oxygen forensic", "detective", "police", "sheriff",
         "stingray", "harris corporation", "digital receiver technology",
-        "drt", "keyw", "sixgill"
+        "drt", "keyw", "sixgill", "wolfcom", "lenslock", "getac",
+        "panasonic toughbook", "stalker radar", "kustom signals"
     ],
     "surveillance": [
         "hikvision", "dahua", "uniview", "tiandy", "cp plus",
         "hanwha", "wisenet", "axis communications", "genetec", "milestone",
         "avigilon", "pelco", "honeywell security", "bosch security",
-        "flir", "teledyne flir", "thermal", "night vision",
-        "drone", "uav", "unmanned", "quadcopter"
+        "flir", "teledyne flir", "thermal", "night vision", "infrared",
+        "drone", "uav", "unmanned", "quadcopter", "i-pro", "panasonic security",
+        "briefcam", "anyvision", "clearview ai", "cognitec", "nec neoface"
     ],
     "chinese_state": [
-        "huawei", "zte", "hikvision", "dahua", "hytera",
-        "inspur", "sugon", "dawning", "phytium", "loongson",
-        "china mobile", "china telecom", "china unicom",
-        "alibaba", "tencent", "baidu", "bytedance", "dji",
-        "sensetime", "megvii", "yitu", "cloudwalk", "iflytek",
-        "nuctech", "pci-suntek", "meiya pico"
+        "huawei", "zte", "hikvision", "dahua", "hytera", "panda electronics",
+        "inspur", "sugon", "dawning", "phytium", "loongson", "zhaoxin",
+        "china mobile", "china telecom", "china unicom", "citic",
+        "alibaba", "tencent", "baidu", "bytedance", "dji", "xiaomi",
+        "sensetime", "megvii", "yitu", "cloudwalk", "iflytek", "cambricon",
+        "nuctech", "pci-suntek", "meiya pico", "cetc", "norinco",
+        "china electronics", "china aerospace", "avic ", "comac",
+        "beidou", "huawei marine", "hengtong", "fiberhome"
     ],
     "russian_state": [
-        "kaspersky", "positive technologies", "group-ib",
+        "kaspersky", "positive technologies", "group-ib", "infotecs",
         "rostelecom", "megafon", "mts ", "beeline", "tele2 russia",
-        "yandex", "mail.ru", "vk ", "sberbank"
+        "yandex", "mail.ru", "vk ", "sberbank", "rostec", "ruselectronics",
+        "almaz-antey", "concern radio", "sukhoi", "mig ", "tupolev",
+        "kamov", "mil helicopter", "uralvagonzavod", "kalashnikov"
     ],
     "israeli_intel": [
-        "nso group", "candiru", "cognyte", "cellebrite",
+        "nso group", "candiru", "cognyte", "cellebrite", "quadream",
         "verint", "nice systems", "elbit", "rafael", "iai ",
-        "israel aerospace", "elta", "check point", "cybereason"
+        "israel aerospace", "elta", "check point", "cybereason",
+        "palo alto networks israel", "checkpoint", "radware", "imperva",
+        "mer group", "magal security", "supercom", "bird aerosystems"
+    ],
+    "uk_defense": [
+        "bae systems", "qinetiq", "leonardo uk", "ultra electronics",
+        "thales uk", "babcock", "rolls-royce defence", "meggitt",
+        "cobham", "chemring", "sophos"
+    ],
+    "german_intel": [
+        "rohde schwarz", "rohde & schwarz", "hensoldt", "diehl defence",
+        "rheinmetall", "krauss-maffei", "thyssenkrupp marine"
+    ],
+    "french_intel": [
+        "thales", "airbus defence", "safran", "nexa technologies",
+        "amesys", "bull atos", "dassault", "naval group", "mbda"
+    ],
+    "middle_east_intel": [
+        "aselsan", "havelsan", "roketsan", "tai turkiye",
+        "darkmatter", "group 42", "g42 ", "edge group uae",
+        "sami saudi", "advanced electronics company"
+    ],
+    "asian_defense": [
+        "mitsubishi electric defense", "mitsubishi heavy", "kawasaki heavy",
+        "nec defense", "fujitsu defense", "ihi aerospace",
+        "hanwha defense", "lig nex1", "korea aerospace", "samsung techwin",
+        "bharat electronics", "hindustan aeronautics", "drdo india",
+        "defence research india", "ordnance factory"
+    ],
+    "spyware_vendor": [
+        "nso group", "candiru", "intellexa", "cytrox", "predator",
+        "finfisher", "gamma group", "hacking team", "circles",
+        "quadream", "paragon", "memento labs"
+    ],
+    "ecm_jamming": [
+        "electronic warfare", "ecm ", "jamming", "jammer",
+        "growler", "compass call", "sigint", "elint"
     ],
     "tracking": [
         "tile", "chipolo", "samsung smartthings", "apple find",
         "airtag", "tracker", "gps track", "lojack", "spireon",
-        "calamp", "geotab", "samsara", "fleet"
+        "calamp", "geotab", "samsara", "fleet complete", "verizon connect",
+        "trimble", "garmin fleet"
     ],
     "iot_risk": [
         "tuya", "espressif", "realtek", "mediatek", "qualcomm atheros",
-        "broadcom", "marvell", "ralink"
+        "broadcom", "marvell", "ralink", "coolpad", "tcl ", "skyworth"
     ]
 }
 
