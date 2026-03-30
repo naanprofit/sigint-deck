@@ -527,19 +527,125 @@ STEAMSCRIPT
     echo -e "${GREEN}✓ Steam launcher created${NC}"
 }
 
+# Setup Python venv for Steam integration
+setup_python_venv() {
+    echo -e "${BLUE}Setting up Python environment...${NC}"
+    
+    if ! command -v python3 &> /dev/null; then
+        echo -e "${YELLOW}Python3 not found, skipping Steam integration${NC}"
+        return 1
+    fi
+    
+    # Create venv
+    python3 -m venv "$INSTALL_DIR/.venv" 2>/dev/null || {
+        echo -e "${YELLOW}Could not create venv, skipping Steam integration${NC}"
+        return 1
+    }
+    
+    # Install vdf library
+    "$INSTALL_DIR/.venv/bin/pip" install --quiet vdf 2>/dev/null || {
+        echo -e "${YELLOW}Could not install vdf library${NC}"
+        return 1
+    }
+    
+    # Create add-to-steam script
+    cat > "$INSTALL_DIR/add-to-steam.py" << 'STEAMPY'
+#!/usr/bin/env python3
+"""Add SIGINT-Deck to Steam as a non-Steam game"""
+import os, sys
+venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "lib")
+for d in os.listdir(venv_path):
+    if d.startswith("python"):
+        sys.path.insert(0, os.path.join(venv_path, d, "site-packages"))
+        break
+import vdf
+
+STEAM_PATH = os.path.expanduser("~/.local/share/Steam")
+SHORTCUTS_PATH = os.path.join(STEAM_PATH, "userdata")
+INSTALL_DIR = os.path.expanduser("~/sigint-deck")
+
+def get_user_id():
+    for entry in os.listdir(SHORTCUTS_PATH):
+        if entry.isdigit(): return entry
+    return None
+
+def generate_shortcut_id(exe, name):
+    key = f"{exe}{name}"
+    crc = 0
+    for char in key:
+        crc = ((crc << 5) + crc + ord(char)) & 0xFFFFFFFF
+    if crc > 0x7FFFFFFF: crc = crc - 0x100000000
+    return crc
+
+def add_shortcut():
+    user_id = get_user_id()
+    if not user_id:
+        print("ERROR: Steam user directory not found")
+        return False
+    
+    shortcuts_file = os.path.join(SHORTCUTS_PATH, user_id, "config", "shortcuts.vdf")
+    shortcuts = {"shortcuts": {}}
+    if os.path.exists(shortcuts_file):
+        try:
+            with open(shortcuts_file, "rb") as f:
+                shortcuts = vdf.binary_load(f)
+        except: pass
+    
+    for key, sc in shortcuts.get("shortcuts", {}).items():
+        if "SIGINT" in str(sc.get("AppName", "")) or "sigint" in str(sc.get("Exe", "")).lower():
+            print("SIGINT-Deck already in Steam"); return True
+    
+    existing_keys = [int(k) for k in shortcuts.get("shortcuts", {}).keys() if k.isdigit()]
+    next_key = str(max(existing_keys) + 1) if existing_keys else "0"
+    exe_path = os.path.join(INSTALL_DIR, "launch-steam.sh")
+    
+    shortcuts["shortcuts"][next_key] = {
+        "appid": generate_shortcut_id(exe_path, "SIGINT-Deck"),
+        "AppName": "SIGINT-Deck", "Exe": f'"{exe_path}"',
+        "StartDir": f'"{INSTALL_DIR}"', "icon": "", "ShortcutPath": "",
+        "LaunchOptions": "", "IsHidden": 0, "AllowDesktopConfig": 1,
+        "AllowOverlay": 1, "OpenVR": 0, "Devkit": 0, "DevkitGameID": "",
+        "DevkitOverrideAppID": 0, "LastPlayTime": 0, "FlatpakAppID": "",
+        "tags": {"0": "Security", "1": "Tools"}
+    }
+    
+    os.makedirs(os.path.dirname(shortcuts_file), exist_ok=True)
+    with open(shortcuts_file, "wb") as f:
+        vdf.binary_dump(shortcuts, f)
+    print("SUCCESS: Added SIGINT-Deck to Steam!")
+    print("Restart Steam or switch to Gaming Mode to see it.")
+    return True
+
+if __name__ == "__main__":
+    try: add_shortcut()
+    except Exception as e: print(f"Error: {e}"); sys.exit(1)
+STEAMPY
+    chmod +x "$INSTALL_DIR/add-to-steam.py"
+    
+    echo -e "${GREEN}✓ Python environment ready${NC}"
+    return 0
+}
+
 # Offer to add to Steam
 add_to_steam() {
     echo ""
-    read -p "Would you like to add SIGINT-Deck to Steam? [y/N] " -n 1 -r
+    read -p "Would you like to add SIGINT-Deck to Steam library? [Y/n] " -n 1 -r
     echo
     
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        # Try automatic method first
+        if [ -f "$INSTALL_DIR/.venv/bin/python" ]; then
+            echo "Adding to Steam automatically..."
+            "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/add-to-steam.py" && return 0
+        fi
+        
+        # Fallback to manual instructions
         echo ""
-        echo -e "${YELLOW}To add to Steam:${NC}"
+        echo -e "${YELLOW}To add to Steam manually:${NC}"
         echo "1. Open Steam in Desktop Mode"
         echo "2. Go to Games → Add a Non-Steam Game"
         echo "3. Click Browse and select:"
-        echo -e "   ${GREEN}$INSTALL_DIR/launch-in-steam.sh${NC}"
+        echo -e "   ${GREEN}$INSTALL_DIR/launch-steam.sh${NC}"
         echo "4. Click 'Add Selected Programs'"
         echo "5. Right-click the game → Properties → Rename to 'SIGINT-Deck'"
         echo ""
@@ -697,6 +803,7 @@ main() {
     create_services
     create_desktop_launcher
     create_steam_launcher
+    setup_python_venv
     add_to_steam
     print_summary
 }
