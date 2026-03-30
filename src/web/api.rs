@@ -778,8 +778,18 @@ pub async fn test_llm_connection(
         }
     };
     
-    // Try to list models (works with most providers)
-    let url = format!("{}/models", llm_config.endpoint.trim_end_matches('/'));
+    // Try to list models - different providers use different endpoints
+    let base_url = llm_config.endpoint.trim_end_matches('/');
+    let url = if base_url.contains("11434") || llm_config.provider.to_lowercase() == "ollama" {
+        // Ollama uses /api/tags
+        format!("{}/api/tags", base_url)
+    } else if base_url.contains("1234") || llm_config.provider.to_lowercase() == "lmstudio" {
+        // LM Studio uses /v1/models
+        format!("{}/v1/models", base_url)
+    } else {
+        // Default OpenAI-compatible: /models or /v1/models
+        format!("{}/models", base_url)
+    };
     let mut req = client.get(&url);
     
     if let Some(ref api_key) = llm_config.api_key {
