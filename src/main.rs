@@ -117,6 +117,8 @@ async fn main() -> Result<()> {
     if config.wifi.enabled && !skip_wifi {
         let wifi_tx = event_tx.clone();
         let wifi_config = config.wifi.clone();
+        let interface = config.wifi.interface.clone();
+        
         handles.push(tokio::spawn(async move {
             let scanner = WifiScanner::new(wifi_config);
             if let Err(e) = scanner.run(wifi_tx).await {
@@ -124,6 +126,15 @@ async fn main() -> Result<()> {
             }
         }));
         info!("WiFi scanner started");
+        
+        // Start channel hopper for comprehensive scanning
+        let channels = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 36, 40, 44, 48, 149, 153, 157, 161, 165];
+        handles.push(tokio::spawn(async move {
+            if let Err(e) = crate::wifi::channel_hopper(&interface, channels).await {
+                warn!("Channel hopper error: {}", e);
+            }
+        }));
+        info!("Channel hopper started");
     }
 
     // BLE Scanner (skip in simulation mode)
