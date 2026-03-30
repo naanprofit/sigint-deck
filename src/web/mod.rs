@@ -1,6 +1,6 @@
 mod api;
 
-pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, HardwareStatusInfo, TrackerInfoApi};
+pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, HardwareStatusInfo, TrackerInfoApi, GpsStatusInfo};
 
 use actix_web::{web, App, HttpServer, middleware};
 use std::sync::Arc;
@@ -191,6 +191,24 @@ pub async fn start_server(
                     if alerts.len() > 100 {
                         alerts.pop();
                     }
+                }
+                ScanEvent::GpsUpdate(position) => {
+                    let mut gps = state_clone.gps_status.write().await;
+                    let now = Utc::now().timestamp();
+                    gps.has_fix = matches!(position.fix_type, 
+                        crate::gps::GpsFixType::Fix2D | 
+                        crate::gps::GpsFixType::Fix3D |
+                        crate::gps::GpsFixType::DGPS
+                    );
+                    gps.fix_type = format!("{:?}", position.fix_type);
+                    gps.latitude = Some(position.latitude);
+                    gps.longitude = Some(position.longitude);
+                    gps.altitude = position.altitude;
+                    gps.speed = position.speed;
+                    gps.heading = position.heading;
+                    gps.satellites = position.satellites;
+                    gps.accuracy = position.accuracy;
+                    gps.last_update = now;
                 }
                 _ => {}
             }

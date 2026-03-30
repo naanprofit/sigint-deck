@@ -421,6 +421,7 @@ EOF
 #!/bin/bash
 # Set external WiFi adapter to monitor mode
 # Called by systemd on boot and resume from suspend
+# Also cleans up phantom wlan interfaces
 
 LOG_TAG="sigint-monitor"
 
@@ -432,12 +433,40 @@ log() {
 # Wait for interface to appear
 sleep 2
 
+# Clean up phantom wlan interfaces (wlan2, wlan3, wlan137, etc.)
+log "Cleaning up phantom interfaces..."
+for iface in $(ip link show 2>/dev/null | grep -oE "wlan[0-9]+" | grep -vE "^wlan[01]$"); do
+    log "Removing phantom interface: $iface"
+    ip link delete "$iface" 2>/dev/null || true
+done
+
+# If wlan1 doesn't exist but mt76 device is present, reload driver
+if ! ip link show wlan1 &>/dev/null; then
+    if lsusb | grep -qi "mediatek\|0e8d:7612"; then
+        log "External adapter present but wlan1 missing, reloading driver..."
+        modprobe -r mt76x2u 2>/dev/null
+        sleep 2
+        modprobe mt76x2u 2>/dev/null
+        sleep 3
+    fi
+fi
+
 # Find external WiFi adapter (not wlan0)
 IFACE=$(ip link show 2>/dev/null | grep -oE "wlan[0-9]+" | grep -v wlan0 | head -1)
 
 if [ -z "$IFACE" ]; then
     log "No external WiFi adapter found"
     exit 0
+fi
+
+# Update config if interface name changed
+CONFIG_FILE="$HOME/sigint-deck/config.toml"
+if [ -f "$CONFIG_FILE" ]; then
+    CURRENT_IFACE=$(grep 'interface = "wlan' "$CONFIG_FILE" | grep -oE 'wlan[0-9]+')
+    if [ -n "$CURRENT_IFACE" ] && [ "$CURRENT_IFACE" != "$IFACE" ]; then
+        log "Updating config from $CURRENT_IFACE to $IFACE"
+        sed -i "s/interface = \"$CURRENT_IFACE\"/interface = \"$IFACE\"/" "$CONFIG_FILE"
+    fi
 fi
 
 # Check current mode
@@ -449,6 +478,9 @@ if [ "$CURRENT_MODE" = "Monitor" ]; then
 fi
 
 log "Setting $IFACE to Monitor mode..."
+
+# Disconnect from any network first
+nmcli device disconnect "$IFACE" 2>/dev/null || true
 
 # Set monitor mode
 ip link set "$IFACE" down 2>/dev/null

@@ -1162,7 +1162,7 @@
                 <li class="device-item ${d.is_tracker ? 'tracker-item' : ''}" tabindex="0" data-mac="${d.mac}">
                     <div class="device-info">
                         <span class="device-mac">${d.name || d.mac}</span>
-                        <span class="device-vendor">${d.device_type || 'Unknown'}</span>
+                        <span class="device-vendor">${d.vendor ? d.vendor + ' • ' : ''}${d.device_type || 'Unknown'}</span>
                         ${d.tracker_info ? renderTrackerInfo(d.tracker_info) : ''}
                     </div>
                     <div class="device-meta">
@@ -1281,7 +1281,7 @@
             const noFixEl = document.getElementById('gpsNoFix');
             const statusEl = document.getElementById('gpsStatus');
             
-            if (!state.gps || !state.gps.latitude) {
+            if (!state.gps || !state.gps.has_fix) {
                 // No fix yet
                 document.getElementById('gpsLat').textContent = '--';
                 document.getElementById('gpsLon').textContent = '--';
@@ -1289,7 +1289,13 @@
                 document.getElementById('gpsSpeed').textContent = '--';
                 document.getElementById('gpsSats').textContent = state.gps?.satellites || '--';
                 document.getElementById('gpsTime').textContent = '--';
-                statusEl.textContent = 'Searching for satellites...';
+                
+                // Show different status based on whether we have any GPS data
+                if (state.gps && state.gps.last_update > 0) {
+                    statusEl.textContent = `${state.gps.fix_type || 'NoFix'} - Searching...`;
+                } else {
+                    statusEl.textContent = 'Waiting for GPS data...';
+                }
                 statusEl.style.color = 'var(--accent-yellow)';
                 noFixEl.style.display = 'block';
                 return;
@@ -1297,7 +1303,9 @@
             
             // Have fix
             noFixEl.style.display = 'none';
-            statusEl.textContent = state.gps.fix_type === 'Fix3D' ? '3D Fix' : '2D Fix';
+            statusEl.textContent = state.gps.fix_type === 'Fix3D' ? '3D Fix' : 
+                                   state.gps.fix_type === 'Fix2D' ? '2D Fix' : 
+                                   state.gps.fix_type || 'Fix';
             statusEl.style.color = 'var(--accent-green)';
             
             document.getElementById('gpsLat').textContent = state.gps.latitude?.toFixed(6) || '--';
@@ -1305,7 +1313,22 @@
             document.getElementById('gpsAlt').textContent = state.gps.altitude ? `${state.gps.altitude.toFixed(1)}m` : '--';
             document.getElementById('gpsSpeed').textContent = state.gps.speed ? `${(state.gps.speed * 3.6).toFixed(1)} km/h` : '--';
             document.getElementById('gpsSats').textContent = state.gps.satellites || '--';
-            document.getElementById('gpsTime').textContent = state.gps.timestamp ? formatTime(state.gps.timestamp) : '--';
+            
+            // Format last update time
+            if (state.gps.last_update) {
+                const updateTime = new Date(state.gps.last_update * 1000);
+                const now = new Date();
+                const diffSec = Math.floor((now - updateTime) / 1000);
+                if (diffSec < 5) {
+                    document.getElementById('gpsTime').textContent = 'Just now';
+                } else if (diffSec < 60) {
+                    document.getElementById('gpsTime').textContent = `${diffSec}s ago`;
+                } else {
+                    document.getElementById('gpsTime').textContent = updateTime.toLocaleTimeString();
+                }
+            } else {
+                document.getElementById('gpsTime').textContent = '--';
+            }
         }
 
         function renderHwStatus() {
@@ -1407,6 +1430,17 @@
             }
         }
 
+        async function fetchGps() {
+            try {
+                const response = await fetch('/api/gps/status');
+                const data = await response.json();
+                state.gps = data;
+                renderGps();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
         // Event listeners
         document.addEventListener('DOMContentLoaded', () => {
             // Tab navigation
@@ -1474,12 +1508,14 @@
             fetchHwStatus();
             fetchDevices();
             fetchAlerts();
+            fetchGps();
             initSettings();
             
             setInterval(fetchStats, 10000);
             setInterval(fetchHwStatus, 10000);
             setInterval(fetchDevices, 5000);
             setInterval(fetchAlerts, 10000);
+            setInterval(fetchGps, 2000); // Poll GPS more frequently
             
             // Cleanup old devices
             setInterval(() => {

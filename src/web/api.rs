@@ -15,6 +15,7 @@ pub struct AppState {
     pub alerts: RwLock<Vec<AlertInfo>>,
     pub attacks: RwLock<Vec<AttackInfo>>,
     pub hw_status: RwLock<HardwareStatusInfo>,
+    pub gps_status: RwLock<GpsStatusInfo>,
 }
 
 impl AppState {
@@ -26,8 +27,23 @@ impl AppState {
             alerts: RwLock::new(Vec::new()),
             attacks: RwLock::new(Vec::new()),
             hw_status: RwLock::new(HardwareStatusInfo::default()),
+            gps_status: RwLock::new(GpsStatusInfo::default()),
         }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct GpsStatusInfo {
+    pub has_fix: bool,
+    pub fix_type: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub altitude: Option<f64>,
+    pub speed: Option<f64>,
+    pub heading: Option<f64>,
+    pub satellites: u8,
+    pub accuracy: Option<f64>,
+    pub last_update: i64,
 }
 
 impl Default for AppState {
@@ -119,6 +135,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/config", web::get().to(get_config))
             .route("/locations", web::get().to(get_locations))
             .route("/hardware/status", web::get().to(get_hardware_status))
+            .route("/gps/status", web::get().to(get_gps_status))
             .route("/wifi/devices", web::get().to(get_wifi_devices))
             .route("/wifi/mode", web::get().to(get_wifi_mode))
             .route("/wifi/mode", web::post().to(set_wifi_mode))
@@ -379,6 +396,13 @@ async fn get_locations(
     HttpResponse::Ok().json(Vec::<serde_json::Value>::new())
 }
 
+async fn get_gps_status(
+    state: web::Data<Arc<AppState>>,
+) -> impl Responder {
+    let gps = state.gps_status.read().await;
+    HttpResponse::Ok().json(gps.clone())
+}
+
 async fn get_hardware_status(
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
@@ -390,7 +414,18 @@ async fn get_wifi_devices(
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
     let devices = state.wifi_devices.read().await;
-    HttpResponse::Ok().json(devices.clone())
+    
+    // Add vendor lookup for devices that don't have it
+    let oui = crate::storage::OuiLookup::embedded();
+    let enriched: Vec<_> = devices.iter().map(|d| {
+        let mut device = d.clone();
+        if device.vendor.is_none() {
+            device.vendor = oui.lookup(&d.mac).map(|s| s.to_string());
+        }
+        device
+    }).collect();
+    
+    HttpResponse::Ok().json(enriched)
 }
 
 /// Get current WiFi interface mode (monitor/managed)
@@ -499,7 +534,18 @@ async fn get_ble_devices(
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
     let devices = state.ble_devices.read().await;
-    HttpResponse::Ok().json(devices.clone())
+    
+    // Add vendor lookup for devices that don't have it
+    let oui = crate::storage::OuiLookup::embedded();
+    let enriched: Vec<_> = devices.iter().map(|d| {
+        let mut device = d.clone();
+        if device.vendor.is_none() {
+            device.vendor = oui.lookup(&d.mac).map(|s| s.to_string());
+        }
+        device
+    }).collect();
+    
+    HttpResponse::Ok().json(enriched)
 }
 
 #[derive(Deserialize)]
