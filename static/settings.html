@@ -962,6 +962,25 @@
                     <input type="number" class="text-input" id="autoLowPower" value="20" min="0" max="100">
                 </div>
             </div>
+
+            <div class="setting-group">
+                <h3>Sleep Prevention</h3>
+                <div class="setting-item">
+                    <label>
+                        <div>Prevent System Suspend</div>
+                        <div class="description" id="sleepInhibitStatus">Loading...</div>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="sleepInhibit" onchange="toggleSleepInhibit()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <p class="description" style="margin-top: 0.5rem; padding: 0 1rem;">
+                    When enabled, prevents the system from suspending/sleeping while scanning is active.
+                    The screen can still turn off to save power, but WiFi, Bluetooth, and GPS will remain active.
+                    Useful for extended monitoring sessions or when GPS needs to maintain a fix.
+                </p>
+            </div>
         </div>
 
         <!-- About -->
@@ -1167,6 +1186,52 @@
             btn.disabled = false;
         }
 
+        // Sleep inhibit functions
+        async function loadSleepInhibit() {
+            try {
+                const response = await fetch('/api/power/sleep-inhibit');
+                const data = await response.json();
+                const checkbox = document.getElementById('sleepInhibit');
+                const status = document.getElementById('sleepInhibitStatus');
+                
+                checkbox.checked = data.inhibited;
+                if (data.inhibited) {
+                    status.textContent = 'System suspend is blocked - scanning will continue';
+                    status.style.color = 'var(--accent-green)';
+                } else {
+                    status.textContent = 'Normal power management - system may suspend';
+                    status.style.color = 'var(--text-secondary)';
+                }
+            } catch (e) {
+                document.getElementById('sleepInhibitStatus').textContent = 'Failed to get status';
+            }
+        }
+
+        async function toggleSleepInhibit() {
+            const checkbox = document.getElementById('sleepInhibit');
+            const inhibit = checkbox.checked;
+            
+            try {
+                const response = await fetch('/api/power/sleep-inhibit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inhibit: inhibit })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    await loadSleepInhibit();
+                } else {
+                    showNotification(`Failed: ${data.error}`, 'error');
+                    checkbox.checked = !inhibit; // Revert
+                }
+            } catch (e) {
+                showNotification('Failed to toggle sleep inhibit', 'error');
+                checkbox.checked = !inhibit; // Revert
+            }
+        }
+
         // Load settings
         async function loadSettings() {
             try {
@@ -1361,6 +1426,7 @@
         loadSettings();
         loadSystemInfo();
         loadWifiMode();
+        loadSleepInhibit();
     </script>
 </body>
 </html>

@@ -124,6 +124,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/wifi/mode", web::post().to(set_wifi_mode))
             .route("/ble/devices", web::get().to(get_ble_devices))
             .route("/power/mode", web::post().to(set_power_mode))
+            .route("/power/sleep-inhibit", web::get().to(get_sleep_inhibit))
+            .route("/power/sleep-inhibit", web::post().to(set_sleep_inhibit))
             // Settings endpoints
             .route("/settings", web::get().to(get_settings))
             .route("/settings", web::post().to(save_settings))
@@ -513,6 +515,110 @@ async fn set_power_mode(
         "success": true,
         "mode": body.mode
     }))
+}
+
+// ============================================
+// Sleep Inhibit (Prevent Suspend)
+// ============================================
+
+/// Check if sleep/suspend is currently inhibited
+async fn get_sleep_inhibit() -> impl Responder {
+    // Check if our inhibitor is active by looking for our process in inhibitor list
+    let output = std::process::Command::new("systemd-inhibit")
+        .arg("--list")
+        .output();
+    
+    let is_inhibited = match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.contains("sigint-deck") || stdout.contains("SIGINT")
+        }
+        Err(_) => false,
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "inhibited": is_inhibited,
+        "description": if is_inhibited { "Sleep/suspend is blocked" } else { "Normal power management" }
+    }))
+}
+
+#[derive(Deserialize)]
+struct SleepInhibitRequest {
+    inhibit: bool,
+}
+
+// Global to track inhibitor process
+use std::sync::atomic::{AtomicU32, Ordering};
+static INHIBITOR_PID: AtomicU32 = AtomicU32::new(0);
+
+/// Enable or disable sleep inhibition
+/// When enabled, prevents system suspend but allows screen to sleep
+async fn set_sleep_inhibit(
+    body: web::Json<SleepInhibitRequest>,
+) -> impl Responder {
+    if body.inhibit {
+        // Check if already inhibited
+        let current_pid = INHIBITOR_PID.load(Ordering::SeqCst);
+        if current_pid != 0 {
+            // Check if process is still running
+            let check = std::process::Command::new("kill")
+                .args(["-0", &current_pid.to_string()])
+                .output();
+            if check.map(|o| o.status.success()).unwrap_or(false) {
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "inhibited": true,
+                    "message": "Already inhibited"
+                }));
+            }
+        }
+        
+        // Start inhibitor process
+        // This runs in background and inhibits sleep as long as it's alive
+        let result = std::process::Command::new("systemd-inhibit")
+            .args([
+                "--what=sleep:idle",
+                "--who=sigint-deck",
+                "--why=SIGINT-Deck scanning active - keeping GPS and WiFi alive",
+                "--mode=block",
+                "sleep", "infinity"
+            ])
+            .spawn();
+        
+        match result {
+            Ok(child) => {
+                let pid = child.id();
+                INHIBITOR_PID.store(pid, Ordering::SeqCst);
+                HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "inhibited": true,
+                    "pid": pid,
+                    "message": "Sleep/suspend inhibited. Screen can still sleep but system won't suspend."
+                }))
+            }
+            Err(e) => {
+                HttpResponse::InternalServerError().json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to start inhibitor: {}", e)
+                }))
+            }
+        }
+    } else {
+        // Kill inhibitor process
+        let pid = INHIBITOR_PID.load(Ordering::SeqCst);
+        if pid != 0 {
+            let _ = std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .output();
+            INHIBITOR_PID.store(0, Ordering::SeqCst);
+        }
+        
+        HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "inhibited": false,
+            "message": "Normal power management restored"
+        }))
+    }
 }
 
 // ============================================
