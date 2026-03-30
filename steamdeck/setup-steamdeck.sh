@@ -180,6 +180,44 @@ systemctl restart systemd-networkd 2>/dev/null || true
 systemctl restart NetworkManager 2>/dev/null || true
 systemctl enable sigint-monitor-mode.service
 
+# 7. Set up channel hopping
+echo "[7/8] Setting up channel hopping..."
+
+# Create sudoers entry for passwordless iw
+cat > /etc/sudoers.d/zzz-sigint-wifi << 'EOF'
+# SIGINT-Deck: Allow passwordless iw for channel hopping
+deck ALL=(ALL) NOPASSWD: /usr/bin/iw
+Defaults:deck !requiretty
+EOF
+chmod 440 /etc/sudoers.d/zzz-sigint-wifi
+
+# Copy channel hopper script
+SCRIPT_DIR="$(dirname "$0")"
+if [ -f "$SCRIPT_DIR/channel-hop.sh" ]; then
+    cp "$SCRIPT_DIR/channel-hop.sh" /home/deck/sigint-pi/channel-hop.sh
+    chmod +x /home/deck/sigint-pi/channel-hop.sh
+    chown deck:deck /home/deck/sigint-pi/channel-hop.sh
+fi
+
+# 8. Set up channel-hop user service
+echo "[8/8] Setting up channel-hop service..."
+mkdir -p /home/deck/.config/systemd/user
+cat > /home/deck/.config/systemd/user/channel-hop.service << 'EOF'
+[Unit]
+Description=WiFi Channel Hopper for SIGINT-Deck
+After=sigint-pi.service
+
+[Service]
+Type=simple
+ExecStart=/home/deck/sigint-pi/channel-hop.sh wlan1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+chown deck:deck /home/deck/.config/systemd/user/channel-hop.service
+
 echo ""
 echo "========================================"
 echo "  Setup Complete!"
@@ -191,11 +229,16 @@ echo "After replugging, verify with:"
 echo "  ip link show wlan0   # Should be internal (ath11k)"
 echo "  ip link show wlan1   # Should be external (mt76x2u)"
 echo ""
-echo "Then enable monitor mode:"
+echo "Then enable monitor mode and channel hopping:"
 echo "  sudo systemctl start sigint-monitor-mode"
+echo "  systemctl --user daemon-reload"
+echo "  systemctl --user enable --now channel-hop"
 echo "  systemctl --user restart sigint-pi"
 echo ""
 echo "Interface mapping (permanent):"
 echo "  wlan0 = Internal WiFi (dc:2e:97:2f:8f:f8) - network connection"
 echo "  wlan1 = External USB (9c:ef:d5:f8:95:2d) - monitor mode capture"
+echo ""
+echo "Verify channel hopping:"
+echo "  for i in {1..10}; do iw dev wlan1 info | grep channel; sleep 0.4; done"
 echo ""

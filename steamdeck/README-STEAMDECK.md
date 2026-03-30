@@ -1,4 +1,4 @@
-# SIGINT-Pi Steam Deck Deployment
+# SIGINT-Deck Steam Deck Deployment
 
 ## Overview
 
@@ -477,6 +477,142 @@ sudo setcap cap_net_raw,cap_net_admin+eip ~/sigint-pi/sigint-pi-bin
 systemctl --user start sigint-pi
 ```
 
+## Channel Hopping Setup
+
+WiFi can only capture packets on one channel at a time. Channel hopping rapidly cycles through all channels to capture traffic across the spectrum.
+
+### 1. Create Sudoers Entry
+
+The channel hopper needs passwordless sudo for `iw` commands:
+
+```bash
+sudo sh -c 'cat > /etc/sudoers.d/zzz-sigint-wifi << EOF
+deck ALL=(ALL) NOPASSWD: /usr/bin/iw
+Defaults:deck !requiretty
+EOF
+chmod 440 /etc/sudoers.d/zzz-sigint-wifi'
+```
+
+**Important:** File must be named `zzz-*` to be processed AFTER the `wheel` group entry.
+
+### 2. Create Channel Hopper Script
+
+```bash
+cat > ~/sigint-pi/channel-hop.sh << 'EOF'
+#!/bin/bash
+IFACE=${1:-wlan1}
+CHANNELS="1 2 3 4 5 6 7 8 9 10 11 36 40 44 48 149 153 157 161 165"
+
+while true; do
+    for ch in $CHANNELS; do
+        sudo -n /usr/bin/iw dev $IFACE set channel $ch 2>/dev/null
+        sleep 0.3
+    done
+done
+EOF
+chmod +x ~/sigint-pi/channel-hop.sh
+```
+
+### 3. Create Systemd Service
+
+```bash
+cat > ~/.config/systemd/user/channel-hop.service << 'EOF'
+[Unit]
+Description=WiFi Channel Hopper
+After=sigint-pi.service
+
+[Service]
+Type=simple
+ExecStart=/home/deck/sigint-pi/channel-hop.sh wlan1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now channel-hop
+```
+
+### 4. Verify Channel Hopping
+
+```bash
+# Watch channels change
+for i in {1..20}; do 
+  iw dev wlan1 info | grep channel
+  sleep 0.4
+done
+```
+
+You should see channels cycling: 1, 2, 3... 11, 36, 40... 165, 1, 2...
+
+## LLM/AI Configuration
+
+SIGINT-Deck supports AI-powered device analysis via local LLM.
+
+### Config File Settings
+
+Add to `~/sigint-pi/config.toml`:
+
+```toml
+[llm]
+enabled = true
+provider = "llamacpp"
+endpoint = "http://192.168.50.191:8080/v1"  # Your LLM server
+model = "2slot-MM-local-gguf"               # Your model name
+max_tokens = 200
+timeout_secs = 60
+```
+
+### Test LLM Connection
+
+```bash
+curl http://localhost:8080/api/ai/status
+```
+
+### Web UI
+
+The Settings tab in the dashboard provides:
+- AI enable/disable toggle
+- Provider selection
+- Endpoint configuration
+- Test connection button
+
+## PCAP Capture
+
+### Enable in Config
+
+```toml
+[wifi]
+pcap_enabled = true
+pcap_path = "/home/deck/sigint-pi/data/pcap"
+pcap_rotate_mb = 100
+```
+
+### API Control
+
+```bash
+# Start capture
+curl -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/api/pcap/start
+
+# Check status
+curl http://localhost:8080/api/pcap/status
+
+# Stop capture
+curl -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/api/pcap/stop
+
+# List files
+curl http://localhost:8080/api/pcap/files
+```
+
+### View Captured Files
+
+```bash
+ls -la ~/sigint-pi/data/pcap/
+# Files named: capture_YYYYMMDD_HHMMSS.pcap
+```
+
 ## Quick Reference
 
 ```bash
@@ -497,6 +633,9 @@ curl http://localhost:8080/api/hardware/status
 
 # Check detected devices
 curl http://localhost:8080/api/stats
+
+# Check channel hopping
+systemctl --user status channel-hop
 ```
 
 ## Technical Notes
