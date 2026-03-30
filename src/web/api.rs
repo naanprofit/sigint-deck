@@ -171,6 +171,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // Voice transcription
             .route("/voice/transcribe", web::post().to(transcribe_audio))
             .route("/voice/status", web::get().to(get_voice_status))
+            // OUI Database
+            .route("/oui/status", web::get().to(get_oui_status))
+            .route("/oui/update", web::post().to(update_oui_database))
+            .route("/oui/lookup/{mac}", web::get().to(lookup_oui))
     );
 }
 
@@ -1685,12 +1689,215 @@ struct TranscribeRequest {
 }
 
 async fn transcribe_audio(
-    body: web::Json<TranscribeRequest>,
+    _body: web::Json<TranscribeRequest>,
 ) -> impl Responder {
     // For now, return a placeholder - actual implementation requires faster-whisper setup
     HttpResponse::Ok().json(serde_json::json!({
         "success": false,
         "error": "Voice transcription not yet implemented. Install faster-whisper: pip install faster-whisper",
         "transcription": null
+    }))
+}
+
+// ============================================
+// OUI Database Management
+// ============================================
+
+const OUI_DATABASE_URL: &str = "https://raw.githubusercontent.com/naanprofit/sigint-deck/main/data/oui-database.min.json";
+const OUI_THREATS_URL: &str = "https://raw.githubusercontent.com/naanprofit/sigint-deck/main/data/oui-threats.json";
+
+fn get_oui_db_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join("sigint-deck").join("data").join("oui-database.json"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./data/oui-database.json"))
+}
+
+async fn get_oui_status() -> impl Responder {
+    let db_path = get_oui_db_path();
+    let exists = db_path.exists();
+    
+    let (entries, version, last_updated) = if exists {
+        match std::fs::read_to_string(&db_path) {
+            Ok(content) => {
+                let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+                let entries = json.get("entries")
+                    .and_then(|e| e.as_object())
+                    .map(|o| o.len())
+                    .unwrap_or(0);
+                let version = json.get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let modified = std::fs::metadata(&db_path)
+                    .and_then(|m| m.modified())
+                    .map(|t| t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64).unwrap_or(0))
+                    .unwrap_or(0);
+                (entries, version, modified)
+            }
+            Err(_) => (0, "unknown".to_string(), 0)
+        }
+    } else {
+        (0, "not installed".to_string(), 0)
+    };
+    
+    // Also check embedded database size
+    let embedded_count = crate::storage::OuiLookup::embedded().len();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "installed": exists,
+        "path": db_path.to_string_lossy(),
+        "entries": entries,
+        "embedded_entries": embedded_count,
+        "version": version,
+        "last_updated": last_updated,
+        "update_url": OUI_DATABASE_URL
+    }))
+}
+
+async fn update_oui_database() -> impl Responder {
+    let db_path = get_oui_db_path();
+    
+    // Ensure directory exists
+    if let Some(parent) = db_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to create directory: {}", e)
+            }));
+        }
+    }
+    
+    // Download the database
+    tracing::info!("Downloading OUI database from {}", OUI_DATABASE_URL);
+    
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build() 
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to create HTTP client: {}", e)
+            }));
+        }
+    };
+    
+    let response = match client.get(OUI_DATABASE_URL).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to download database: {}", e)
+            }));
+        }
+    };
+    
+    if !response.status().is_success() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("HTTP error: {}", response.status())
+        }));
+    }
+    
+    let content = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to read response: {}", e)
+            }));
+        }
+    };
+    
+    // Validate JSON
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(j) => j,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
+    
+    let entries = json.get("entries")
+        .and_then(|e| e.as_object())
+        .map(|o| o.len())
+        .unwrap_or(0);
+    
+    if entries == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Database appears empty or invalid"
+        }));
+    }
+    
+    // Write to file
+    if let Err(e) = std::fs::write(&db_path, &content) {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to write database: {}", e)
+        }));
+    }
+    
+    tracing::info!("OUI database updated: {} entries", entries);
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": format!("Database updated with {} entries", entries),
+        "entries": entries,
+        "path": db_path.to_string_lossy()
+    }))
+}
+
+async fn lookup_oui(
+    path: web::Path<String>,
+) -> impl Responder {
+    let mac = path.into_inner();
+    
+    // Try external database first
+    let db_path = get_oui_db_path();
+    if db_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&db_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                // Normalize MAC to OUI format (XX:XX:XX)
+                let oui = mac.replace("-", ":").replace(".", ":")
+                    .to_uppercase()
+                    .chars()
+                    .take(8)
+                    .collect::<String>();
+                
+                if let Some(entry) = json.get("entries").and_then(|e| e.get(&oui)) {
+                    return HttpResponse::Ok().json(serde_json::json!({
+                        "mac": mac,
+                        "oui": oui,
+                        "found": true,
+                        "source": "external",
+                        "vendor": entry.get("vendor"),
+                        "country": entry.get("country"),
+                        "threat_category": entry.get("threat_category"),
+                        "threat_level": entry.get("threat_level")
+                    }));
+                }
+            }
+        }
+    }
+    
+    // Fall back to embedded database
+    let oui = crate::storage::OuiLookup::embedded();
+    if let Some(vendor) = oui.lookup(&mac) {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "mac": mac,
+            "found": true,
+            "source": "embedded",
+            "vendor": vendor
+        }));
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "mac": mac,
+        "found": false
     }))
 }
