@@ -1,0 +1,531 @@
+# SIGINT-Pi Steam Deck Deployment
+
+## Overview
+
+SIGINT-Pi runs on Steam Deck as a native binary (not container) for best performance and hardware access.
+
+## Hardware Requirements
+
+| Component | Required | Notes |
+|-----------|----------|-------|
+| Steam Deck | Yes | LCD or OLED |
+| External USB WiFi Adapter | Yes | Internal WiFi does NOT support monitor mode |
+| USB GPS Receiver | Optional | For location tracking (U-Blox recommended) |
+| USB Hub | Recommended | Powered hub for multiple devices |
+
+### Tested Hardware
+
+| Device | USB ID | Driver | Status |
+|--------|--------|--------|--------|
+| MediaTek MT7612U | 0e8d:7612 | mt76x2u | ✅ Working |
+| U-Blox 7 GPS | 1546:01a7 | cdc_acm | ✅ Working |
+| Steam Deck Internal WiFi | - | ath11k_pci | ❌ No monitor mode |
+
+### Recommended WiFi Adapters
+
+- **MediaTek MT7612U** (tested, confirmed working)
+- Alfa AWUS036ACHM
+- Alfa AWUS036ACH
+- Panda PAU09
+
+## Installation
+
+### 1. Copy Files to Steam Deck
+
+```bash
+# From your development machine
+scp -r sigint-pi deck@steamdeck:~/
+```
+
+### 2. Run Setup Script (requires sudo)
+
+```bash
+# On Steam Deck
+sudo ~/sigint-pi/setup-steamdeck.sh
+```
+
+This script:
+- Creates systemd .link files for persistent interface naming
+- Locks internal WiFi to `wlan0` and external USB to `wlan1`
+- Prevents NetworkManager from managing the external adapter
+- Sets up GPS device permissions
+- Configures gpsd (if installed)
+- Creates monitor mode service
+
+### 3. Unplug and Replug External WiFi Adapter
+
+**IMPORTANT:** After running setup, physically unplug and replug the USB WiFi adapter. This triggers the new naming rules.
+
+### 4. Verify Interface Names
+
+```bash
+ip link show wlan0   # Should be internal (ath11k_pci)
+ip link show wlan1   # Should be external (mt76x2u)
+```
+
+### 5. Enable User Service
+
+```bash
+# Enable lingering (runs service even when logged out)
+loginctl enable-linger deck
+
+# Enable and start the service
+systemctl --user enable sigint-pi
+systemctl --user start sigint-pi
+```
+
+### 6. Enable Monitor Mode
+
+```bash
+sudo systemctl start sigint-monitor-mode
+systemctl --user restart sigint-pi
+```
+
+## Interface Naming (The Problem & Solution)
+
+### The Problem
+
+Steam Deck assigns WiFi interface names dynamically. When you plug in an external USB WiFi adapter, it can:
+- Steal `wlan0` from the internal WiFi
+- Get assigned random names like `wlan3`, `wlan6`, etc.
+- Break your network connection
+
+This happens because:
+1. Steam Deck uses predictable interface naming based on device path
+2. USB devices can enumerate in different orders
+3. Desktop Mode and Game Mode handle networking differently
+
+### The Solution
+
+We use **systemd .link files** to assign permanent interface names based on MAC address:
+
+```
+/etc/systemd/network/10-wlan0-internal.link  -> Internal WiFi always wlan0
+/etc/systemd/network/10-wlan1-external.link  -> External USB always wlan1
+```
+
+This is more reliable than udev `NAME=` rules on modern systemd systems.
+
+### Interface Mapping
+
+| Interface | MAC Address | Device | Purpose |
+|-----------|-------------|--------|---------|
+| `wlan0` | dc:2e:97:2f:8f:f8 | Internal (ath11k_pci) | Network connection |
+| `wlan1` | 9c:ef:d5:f8:95:2d | External (mt76x2u) | Monitor mode capture |
+
+**Note:** If your hardware has different MAC addresses, edit the setup script before running.
+
+## GPS Setup
+
+### Hardware
+
+SIGINT-Pi supports U-Blox GPS receivers (tested with U-Blox 7).
+
+### Requirements
+
+GPS requires `gpsd` daemon. On Steam Deck:
+
+```bash
+# Disable read-only filesystem
+sudo steamos-readonly disable
+
+# Install gpsd
+sudo pacman -S gpsd
+
+# Re-enable read-only
+sudo steamos-readonly enable
+
+# Run setup script again to configure gpsd
+sudo ~/sigint-pi/setup-steamdeck.sh
+```
+
+### Configuration
+
+The setup script creates:
+- `/etc/udev/rules.d/91-sigint-gps.rules` - Device permissions and `/dev/gps0` symlink
+- `/etc/default/gpsd` - gpsd configuration pointing to `/dev/ttyACM1`
+
+### Verify GPS
+
+```bash
+# Check device exists
+ls -la /dev/ttyACM* /dev/gps0
+
+# Test raw GPS data
+cat /dev/ttyACM1
+
+# Check gpsd status
+systemctl status gpsd
+
+# Test gpsd
+gpsmon
+```
+
+## Services
+
+### User Service: sigint-pi
+
+```bash
+# Status
+systemctl --user status sigint-pi
+
+# Restart
+systemctl --user restart sigint-pi
+
+# Logs
+journalctl --user -u sigint-pi -f
+
+# Enable at boot
+systemctl --user enable sigint-pi
+```
+
+### System Service: sigint-monitor-mode
+
+```bash
+# Enable monitor mode
+sudo systemctl start sigint-monitor-mode
+
+# Disable monitor mode  
+sudo systemctl stop sigint-monitor-mode
+
+# Enable at boot
+sudo systemctl enable sigint-monitor-mode
+
+# Check status
+sudo systemctl status sigint-monitor-mode
+```
+
+## Configuration
+
+Config file: `~/sigint-pi/config.toml`
+
+### Key Settings
+
+```toml
+[wifi]
+enabled = true
+interface = "wlan1"  # External USB adapter
+
+[bluetooth]
+enabled = true
+detect_airtags = true
+
+[gps]
+enabled = true
+gpsd_host = "127.0.0.1"
+gpsd_port = 2947
+
+[alerts.sound]
+enabled = true
+ninja_mode = false  # Set true for silent operation
+```
+
+## Web Dashboard
+
+Access at: `http://steamdeck:8080` or `http://<ip>:8080`
+
+Features:
+- Real-time BLE device list (sorted: trackers first, then NEW, then by signal)
+- AirTag/tracker detection with visual highlighting
+- WiFi device monitoring (when monitor mode enabled)
+- Hardware status indicators
+- GPS location display
+
+## Troubleshooting
+
+### External adapter steals wlan0 / gets wrong name
+
+**Symptoms:**
+- Network connection drops when plugging in USB adapter
+- External adapter shows as wlan3, wlan6, etc.
+- `wlan1` doesn't exist
+
+**Solution:**
+1. Run the setup script:
+   ```bash
+   sudo ~/sigint-pi/setup-steamdeck.sh
+   ```
+2. Unplug the external WiFi adapter
+3. Wait 5 seconds
+4. Plug it back in
+5. Verify:
+   ```bash
+   ip link show wlan0  # Internal
+   ip link show wlan1  # External
+   ```
+
+### WiFi scanner not working
+
+**Symptoms:**
+- Dashboard shows 0 WiFi devices
+- Logs show "Interface wlan1 not found" or "Failed to open capture"
+
+**Checklist:**
+
+1. Check interface exists:
+   ```bash
+   ip link show wlan1
+   ```
+
+2. Check interface is in monitor mode:
+   ```bash
+   iw dev wlan1 info | grep type
+   # Should show: type monitor
+   ```
+
+3. If not in monitor mode:
+   ```bash
+   sudo systemctl start sigint-monitor-mode
+   ```
+
+4. Restart SIGINT-Pi:
+   ```bash
+   systemctl --user restart sigint-pi
+   ```
+
+### BLE not detecting devices
+
+**Symptoms:**
+- Dashboard shows 0 BLE devices
+- No AirTags detected
+
+**Checklist:**
+
+1. Check Bluetooth service:
+   ```bash
+   systemctl status bluetooth
+   ```
+
+2. Check adapter is available:
+   ```bash
+   bluetoothctl show
+   ```
+
+3. Check SIGINT-Pi logs:
+   ```bash
+   journalctl --user -u sigint-pi | grep -i ble
+   ```
+
+### GPS not working
+
+**Symptoms:**
+- GPS indicator shows red
+- No location data
+
+**Checklist:**
+
+1. Check GPS device exists:
+   ```bash
+   ls -la /dev/ttyACM*
+   ```
+
+2. Test raw GPS output:
+   ```bash
+   cat /dev/ttyACM1
+   # Should show NMEA sentences like $GPRMC, $GPGGA
+   ```
+
+3. Check gpsd is running:
+   ```bash
+   systemctl status gpsd
+   ```
+
+4. If gpsd not installed:
+   ```bash
+   sudo steamos-readonly disable
+   sudo pacman -S gpsd
+   sudo steamos-readonly enable
+   sudo ~/sigint-pi/setup-steamdeck.sh
+   ```
+
+5. Test gpsd connection:
+   ```bash
+   gpsmon
+   # or
+   gpspipe -w
+   ```
+
+### Service keeps dying
+
+**Symptoms:**
+- Service stops unexpectedly
+- Have to keep restarting
+
+**Checklist:**
+
+1. Check logs for errors:
+   ```bash
+   journalctl --user -u sigint-pi -n 100
+   ```
+
+2. Common causes:
+   - Config file syntax error
+   - Missing interface (adapter unplugged)
+   - Permission denied (for WiFi capture)
+
+3. Verify config syntax:
+   ```bash
+   cat ~/sigint-pi/config.toml | head -50
+   ```
+
+### Dashboard shows "Disconnected"
+
+This is **normal behavior**. The dashboard uses polling (not WebSocket) to fetch data. The "Disconnected" indicator refers to WebSocket status which is not implemented.
+
+Data still updates via REST API polling every 5-10 seconds.
+
+### Network drops in Game Mode
+
+Steam Deck handles networking differently in Game Mode. The setup script's systemd .link files should persist across modes, but if issues occur:
+
+1. Switch to Desktop Mode
+2. Verify interface names
+3. Re-run setup if needed
+4. Unplug/replug adapter
+
+## Files
+
+```
+~/sigint-pi/
+├── sigint-pi-bin          # Main binary
+├── config.toml            # Configuration
+├── sigint.log             # Application log
+├── data/                  # Database and pcap files
+├── static/                # Web dashboard files
+├── setup-steamdeck.sh     # Initial setup (run with sudo)
+├── set-monitor-mode.sh    # Enable monitor mode
+├── unset-monitor-mode.sh  # Disable monitor mode
+└── docs/
+    └── README-STEAMDECK.md  # This file
+```
+
+### System Files Created by Setup
+
+```
+/etc/systemd/network/
+├── 10-wlan0-internal.link    # Lock internal WiFi to wlan0
+└── 10-wlan1-external.link    # Lock external USB to wlan1
+
+/etc/udev/rules.d/
+├── 90-sigint-wifi.rules      # Mark wlan1 as NM_UNMANAGED
+└── 91-sigint-gps.rules       # GPS permissions and /dev/gps0 symlink
+
+/etc/NetworkManager/conf.d/
+└── 90-sigint-unmanaged.conf  # Ignore wlan1
+
+/etc/systemd/system/
+└── sigint-monitor-mode.service  # Auto-enable monitor mode
+
+/etc/default/
+└── gpsd                      # gpsd configuration (if installed)
+```
+
+## Security Notes
+
+- WiFi capture requires root (handled by monitor-mode service)
+- BLE scanning works without root
+- Dashboard accessible on local network only
+- No data sent externally unless alerts configured
+- GPS location is only stored locally unless webhook alerts enabled
+
+## Startup Orchestration
+
+SIGINT-Pi requires multiple components started in the correct order:
+
+1. **gpsd** - GPS daemon (needs GPS device)
+2. **Monitor mode** - External WiFi in monitor mode (needs sudo)
+3. **Capabilities** - Binary needs `cap_net_raw` for packet capture
+4. **sigint-pi** - Main application service
+
+### Using the Master Start Script (Recommended)
+
+```bash
+# Start everything in correct order
+sudo ~/sigint-pi/start-sigint.sh
+
+# Stop everything
+sudo ~/sigint-pi/stop-sigint.sh
+
+# Check status
+~/sigint-pi/status-sigint.sh
+```
+
+### Auto-Start at Boot
+
+```bash
+# Enable master orchestration service
+sudo systemctl enable sigint-pi-master
+
+# This will run start-sigint.sh at boot
+```
+
+### Manual Control
+
+```bash
+# Start GPS daemon
+sudo gpsd -n /dev/ttyACM1
+
+# Enable monitor mode
+sudo ip link set wlan1 down
+sudo iw wlan1 set type monitor
+sudo ip link set wlan1 up
+
+# Set capabilities (required for WiFi capture without root)
+sudo setcap cap_net_raw,cap_net_admin+eip ~/sigint-pi/sigint-pi-bin
+
+# Start service
+systemctl --user start sigint-pi
+```
+
+## Quick Reference
+
+```bash
+# Start everything (recommended)
+sudo ~/sigint-pi/start-sigint.sh
+
+# Stop everything
+sudo ~/sigint-pi/stop-sigint.sh
+
+# Check status
+~/sigint-pi/status-sigint.sh
+
+# View logs
+journalctl --user -u sigint-pi -f
+
+# Check hardware status
+curl http://localhost:8080/api/hardware/status
+
+# Check detected devices
+curl http://localhost:8080/api/stats
+```
+
+## Technical Notes
+
+### Why Capabilities Are Needed
+
+WiFi packet capture requires raw socket access, which normally needs root. Instead of running the whole application as root, we use Linux capabilities:
+
+```bash
+setcap cap_net_raw,cap_net_admin+eip ~/sigint-pi/sigint-pi-bin
+```
+
+This grants only the specific permissions needed.
+
+### Why libpcap Symlink Is Needed
+
+The binary was compiled against `libpcap.so.0.8` but Steam Deck has `libpcap.so.1`. When capabilities are set on a binary, `LD_LIBRARY_PATH` is ignored for security reasons. The symlink provides compatibility:
+
+```bash
+ln -sf /usr/lib/libpcap.so.1 /usr/lib/libpcap.so.0.8
+```
+
+### Interface Naming with systemd .link Files
+
+Modern systemd uses `.link` files for interface naming, which is more reliable than udev `NAME=` rules:
+
+```
+/etc/systemd/network/10-wlan0-internal.link  # Internal -> wlan0
+/etc/systemd/network/10-wlan1-external.link  # External -> wlan1
+```
+
+These match by MAC address and assign fixed names.
