@@ -134,6 +134,21 @@ enabled = false
 # timeout_secs = 30
 # min_priority = "medium"
 
+# LLM Integration (Optional)
+# For AI-powered device analysis and explanations
+# Supports OpenAI-compatible APIs (llama.cpp, Ollama, LMStudio, OpenAI, etc.)
+[llm]
+enabled = true
+provider = "llamacpp"                        # llamacpp, ollama, lmstudio, openai, custom
+endpoint = "http://192.168.50.191:8080"      # llama.cpp server on local network
+# endpoint = "http://localhost:11434"        # Ollama default
+# endpoint = "http://localhost:1234"         # LMStudio default
+# endpoint = "https://api.openai.com/v1"     # OpenAI
+api_key = "WZvN7ieTP9cd0EPFf9Z2pQ=="         # Optional for local LLMs, required for OpenAI
+model = "local"                               # Model name (use "local" for llama.cpp)
+max_tokens = 200                              # Max tokens for responses
+timeout_secs = 60                             # Request timeout
+
 # InfluxDB Cloud Export (Optional)
 # For time-series metrics and Grafana dashboards
 [influxdb]
