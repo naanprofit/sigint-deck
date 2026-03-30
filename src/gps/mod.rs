@@ -120,33 +120,66 @@ fn parse_gpsd_json(line: &str) -> Option<GpsPosition> {
     // Parse gpsd TPV (Time-Position-Velocity) message
     let json: serde_json::Value = serde_json::from_str(line).ok()?;
     
-    if json.get("class")?.as_str()? != "TPV" {
-        return None;
+    let class = json.get("class")?.as_str()?;
+    
+    // Handle TPV (position) messages
+    if class == "TPV" {
+        let mode = json.get("mode").and_then(|v| v.as_i64()).unwrap_or(0) as u8;
+        
+        // Get coordinates if available (mode >= 2 means we have a fix)
+        let (lat, lon) = if mode >= 2 {
+            let lat = json.get("lat").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let lon = json.get("lon").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            (lat, lon)
+        } else {
+            (0.0, 0.0) // No fix yet, but still report status
+        };
+
+        return Some(GpsPosition {
+            latitude: lat,
+            longitude: lon,
+            altitude: json.get("alt").and_then(|v| v.as_f64()),
+            speed: json.get("speed").and_then(|v| v.as_f64()),
+            heading: json.get("track").and_then(|v| v.as_f64()),
+            accuracy: json.get("epx").and_then(|v| v.as_f64()),
+            fix_type: match mode {
+                0 => GpsFixType::NoFix,
+                1 => GpsFixType::NoFix, // Searching
+                2 => GpsFixType::Fix2D,
+                3 => GpsFixType::Fix3D,
+                _ => GpsFixType::NoFix,
+            },
+            satellites: json.get("satellites").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+            timestamp: Utc::now(),
+        });
     }
-
-    let mode = json.get("mode")?.as_i64()? as u8;
-    if mode < 2 {
-        return None; // No fix
+    
+    // Handle SKY (satellite) messages to get satellite count
+    if class == "SKY" {
+        let sats = json.get("satellites")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0) as u8;
+        
+        let used_sats = json.get("uSat")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u8;
+        
+        // Return a no-fix position with satellite info
+        return Some(GpsPosition {
+            latitude: 0.0,
+            longitude: 0.0,
+            altitude: None,
+            speed: None,
+            heading: None,
+            accuracy: None,
+            fix_type: GpsFixType::NoFix,
+            satellites: if used_sats > 0 { used_sats } else { sats },
+            timestamp: Utc::now(),
+        });
     }
-
-    let lat = json.get("lat")?.as_f64()?;
-    let lon = json.get("lon")?.as_f64()?;
-
-    Some(GpsPosition {
-        latitude: lat,
-        longitude: lon,
-        altitude: json.get("alt").and_then(|v| v.as_f64()),
-        speed: json.get("speed").and_then(|v| v.as_f64()),
-        heading: json.get("track").and_then(|v| v.as_f64()),
-        accuracy: json.get("epx").and_then(|v| v.as_f64()),
-        fix_type: match mode {
-            2 => GpsFixType::Fix2D,
-            3 => GpsFixType::Fix3D,
-            _ => GpsFixType::NoFix,
-        },
-        satellites: json.get("satellites").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
-        timestamp: Utc::now(),
-    })
+    
+    None
 }
 
 impl GpsPosition {

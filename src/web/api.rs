@@ -1176,6 +1176,69 @@ async fn save_settings(
                 }
             }
         }
+        
+        // Handle GPS settings
+        if let Some(gps) = incoming_obj.get("gps") {
+            let gps_table = existing_table.entry("gps".to_string())
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            if let (toml::Value::Table(ref mut gps_t), Some(obj)) = (gps_table, gps.as_object()) {
+                if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
+                    gps_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                }
+                if let Some(geofencing) = obj.get("geofencing").and_then(|v| v.as_bool()) {
+                    gps_t.insert("geofencing_enabled".to_string(), toml::Value::Boolean(geofencing));
+                }
+            }
+        }
+        
+        // Handle WiFi settings
+        if let Some(wifi) = incoming_obj.get("wifi") {
+            let wifi_table = existing_table.entry("wifi".to_string())
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            if let (toml::Value::Table(ref mut wifi_t), Some(obj)) = (wifi_table, wifi.as_object()) {
+                if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
+                    wifi_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                }
+            }
+        }
+        
+        // Handle Bluetooth settings
+        if let Some(bluetooth) = incoming_obj.get("bluetooth") {
+            let ble_table = existing_table.entry("bluetooth".to_string())
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            if let (toml::Value::Table(ref mut ble_t), Some(obj)) = (ble_table, bluetooth.as_object()) {
+                if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
+                    ble_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                }
+                if let Some(detect_trackers) = obj.get("detect_trackers").and_then(|v| v.as_bool()) {
+                    ble_t.insert("detect_trackers".to_string(), toml::Value::Boolean(detect_trackers));
+                }
+            }
+        }
+        
+        // Handle Alert settings
+        if let Some(alerts) = incoming_obj.get("alerts") {
+            let alerts_table = existing_table.entry("alerts".to_string())
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            if let (toml::Value::Table(ref mut alerts_t), Some(obj)) = (alerts_table, alerts.as_object()) {
+                // Sound settings
+                if let Some(sound) = obj.get("sound") {
+                    let sound_table = alerts_t.entry("sound".to_string())
+                        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+                    if let (toml::Value::Table(ref mut sound_t), Some(snd)) = (sound_table, sound.as_object()) {
+                        if let Some(enabled) = snd.get("enabled").and_then(|v| v.as_bool()) {
+                            sound_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                        }
+                        if let Some(ninja) = snd.get("ninja_mode").and_then(|v| v.as_bool()) {
+                            sound_t.insert("ninja_mode".to_string(), toml::Value::Boolean(ninja));
+                        }
+                        if let Some(vol) = snd.get("volume").and_then(|v| v.as_i64()) {
+                            sound_t.insert("volume".to_string(), toml::Value::Integer(vol));
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // Write back to file

@@ -195,19 +195,31 @@ pub async fn start_server(
                 ScanEvent::GpsUpdate(position) => {
                     let mut gps = state_clone.gps_status.write().await;
                     let now = Utc::now().timestamp();
-                    gps.has_fix = matches!(position.fix_type, 
+                    let has_fix = matches!(position.fix_type, 
                         crate::gps::GpsFixType::Fix2D | 
                         crate::gps::GpsFixType::Fix3D |
                         crate::gps::GpsFixType::DGPS
                     );
+                    gps.has_fix = has_fix;
                     gps.fix_type = format!("{:?}", position.fix_type);
-                    gps.latitude = Some(position.latitude);
-                    gps.longitude = Some(position.longitude);
-                    gps.altitude = position.altitude;
-                    gps.speed = position.speed;
-                    gps.heading = position.heading;
+                    // Only update coordinates if we have a fix
+                    if has_fix {
+                        gps.latitude = Some(position.latitude);
+                        gps.longitude = Some(position.longitude);
+                        gps.altitude = position.altitude;
+                        gps.speed = position.speed;
+                        gps.heading = position.heading;
+                        gps.accuracy = position.accuracy;
+                    } else {
+                        // Clear stale coordinates when no fix
+                        gps.latitude = None;
+                        gps.longitude = None;
+                        gps.altitude = None;
+                        gps.speed = None;
+                        gps.heading = None;
+                        gps.accuracy = None;
+                    }
                     gps.satellites = position.satellites;
-                    gps.accuracy = position.accuracy;
                     gps.last_update = now;
                 }
                 _ => {}

@@ -1117,7 +1117,7 @@
             }
 
             list.innerHTML = devices.map(d => `
-                <li class="device-item" tabindex="0">
+                <li class="device-item" tabindex="0" data-mac="${d.mac}" data-type="wifi">
                     <div class="device-info">
                         <span class="device-mac">${d.mac}</span>
                         <span class="device-vendor">${d.vendor || 'Unknown'}${d.ssid ? ' • ' + d.ssid : ''}</span>
@@ -1127,6 +1127,7 @@
                         ${d.is_ap ? '<span class="badge ap">AP</span>' : ''}
                         <span class="channel-badge">CH${d.channel || '?'}</span>
                         <span class="rssi ${getRssiClass(d.rssi)}">${d.rssi} dBm</span>
+                        <button class="note-btn" onclick="openNoteModal('${d.mac}', 'wifi', '${d.vendor || ''}', '${d.ssid || ''}', '')" title="Add note">📝</button>
                     </div>
                 </li>
             `).join('');
@@ -1159,7 +1160,7 @@
             }
 
             list.innerHTML = devices.map(d => `
-                <li class="device-item ${d.is_tracker ? 'tracker-item' : ''}" tabindex="0" data-mac="${d.mac}">
+                <li class="device-item ${d.is_tracker ? 'tracker-item' : ''}" tabindex="0" data-mac="${d.mac}" data-type="ble">
                     <div class="device-info">
                         <span class="device-mac">${d.name || d.mac}</span>
                         <span class="device-vendor">${d.vendor ? d.vendor + ' • ' : ''}${d.device_type || 'Unknown'}</span>
@@ -1171,6 +1172,7 @@
                         ${d.tracker_info?.is_lost_mode ? '<span class="badge lost">LOST MODE</span>' : ''}
                         ${d.tracker_info?.is_separated ? '<span class="badge separated">SEPARATED</span>' : ''}
                         <span class="rssi ${getRssiClass(d.rssi)}">${d.rssi} dBm</span>
+                        <button class="note-btn" onclick="openNoteModal('${d.mac}', 'ble', '${d.vendor || ''}', '', '${(d.name || '').replace(/'/g, "\\'")}')" title="Add note">📝</button>
                     </div>
                 </li>
             `).join('');
