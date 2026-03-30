@@ -641,6 +641,15 @@
                 </div>
                 <div class="setting-item">
                     <label>
+                        <div>Monitor Mode</div>
+                        <div class="description" id="wifiModeStatus">Loading...</div>
+                    </label>
+                    <button class="action-btn" id="wifiModeToggle" onclick="toggleWifiMode()">
+                        Toggle Mode
+                    </button>
+                </div>
+                <div class="setting-item">
+                    <label>
                         <div>Attack Detection</div>
                         <div class="description">Detect deauth, evil twin, and other attacks</div>
                     </label>
@@ -1101,6 +1110,63 @@
             });
         });
 
+        // WiFi mode functions
+        async function loadWifiMode() {
+            try {
+                const response = await fetch('/api/wifi/mode');
+                const data = await response.json();
+                const statusEl = document.getElementById('wifiModeStatus');
+                const btnEl = document.getElementById('wifiModeToggle');
+                
+                if (data.mode === 'monitor') {
+                    statusEl.textContent = `Interface ${data.interface} is in Monitor mode`;
+                    statusEl.style.color = 'var(--accent-green)';
+                    btnEl.textContent = 'Switch to Managed';
+                    btnEl.dataset.currentMode = 'monitor';
+                } else if (data.mode === 'managed') {
+                    statusEl.textContent = `Interface ${data.interface} is in Managed mode`;
+                    statusEl.style.color = 'var(--accent-yellow)';
+                    btnEl.textContent = 'Switch to Monitor';
+                    btnEl.dataset.currentMode = 'managed';
+                } else {
+                    statusEl.textContent = `Interface ${data.interface}: ${data.mode}`;
+                    statusEl.style.color = 'var(--accent-red)';
+                }
+            } catch (e) {
+                document.getElementById('wifiModeStatus').textContent = 'Failed to get mode';
+            }
+        }
+
+        async function toggleWifiMode() {
+            const btn = document.getElementById('wifiModeToggle');
+            const currentMode = btn.dataset.currentMode || 'managed';
+            const newMode = currentMode === 'monitor' ? 'managed' : 'monitor';
+            
+            btn.disabled = true;
+            btn.textContent = 'Switching...';
+            
+            try {
+                const response = await fetch('/api/wifi/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: newMode })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification(`Switched to ${newMode} mode`, 'success');
+                    // Reload mode status
+                    await loadWifiMode();
+                } else {
+                    showNotification(`Failed: ${data.error}`, 'error');
+                }
+            } catch (e) {
+                showNotification('Failed to toggle mode', 'error');
+            }
+            
+            btn.disabled = false;
+        }
+
         // Load settings
         async function loadSettings() {
             try {
@@ -1294,6 +1360,7 @@
         // Initialize
         loadSettings();
         loadSystemInfo();
+        loadWifiMode();
     </script>
 </body>
 </html>

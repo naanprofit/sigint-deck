@@ -120,6 +120,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/locations", web::get().to(get_locations))
             .route("/hardware/status", web::get().to(get_hardware_status))
             .route("/wifi/devices", web::get().to(get_wifi_devices))
+            .route("/wifi/mode", web::get().to(get_wifi_mode))
+            .route("/wifi/mode", web::post().to(set_wifi_mode))
             .route("/ble/devices", web::get().to(get_ble_devices))
             .route("/power/mode", web::post().to(set_power_mode))
             // Settings endpoints
@@ -387,6 +389,108 @@ async fn get_wifi_devices(
 ) -> impl Responder {
     let devices = state.wifi_devices.read().await;
     HttpResponse::Ok().json(devices.clone())
+}
+
+/// Get current WiFi interface mode (monitor/managed)
+async fn get_wifi_mode(
+    config: web::Data<Arc<Config>>,
+) -> impl Responder {
+    let interface = &config.wifi.interface;
+    
+    // Run iwconfig to get current mode
+    let output = std::process::Command::new("iwconfig")
+        .arg(interface)
+        .output();
+    
+    let (mode, is_up) = match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let mode = if stdout.contains("Mode:Monitor") {
+                "monitor"
+            } else if stdout.contains("Mode:Managed") {
+                "managed"
+            } else {
+                "unknown"
+            };
+            let is_up = !stdout.contains("Not-Associated") && !stdout.contains("off/any");
+            (mode, is_up)
+        }
+        Err(_) => ("error", false),
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "interface": interface,
+        "mode": mode,
+        "is_up": is_up
+    }))
+}
+
+#[derive(Deserialize)]
+struct WifiModeRequest {
+    mode: String, // "monitor" or "managed"
+}
+
+/// Set WiFi interface mode (requires sudo)
+async fn set_wifi_mode(
+    config: web::Data<Arc<Config>>,
+    body: web::Json<WifiModeRequest>,
+) -> impl Responder {
+    let interface = &config.wifi.interface;
+    let mode = body.mode.to_lowercase();
+    
+    if mode != "monitor" && mode != "managed" {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Mode must be 'monitor' or 'managed'"
+        }));
+    }
+    
+    // Run commands to change mode
+    // 1. Bring interface down
+    let down_result = std::process::Command::new("sudo")
+        .args(["ip", "link", "set", interface, "down"])
+        .output();
+    
+    if down_result.is_err() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": "Failed to bring interface down"
+        }));
+    }
+    
+    // 2. Set mode
+    let mode_result = std::process::Command::new("sudo")
+        .args(["iw", "dev", interface, "set", "type", &mode])
+        .output();
+    
+    if let Err(e) = mode_result {
+        // Try to bring interface back up
+        let _ = std::process::Command::new("sudo")
+            .args(["ip", "link", "set", interface, "up"])
+            .output();
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to set mode: {}", e)
+        }));
+    }
+    
+    // 3. Bring interface up
+    let up_result = std::process::Command::new("sudo")
+        .args(["ip", "link", "set", interface, "up"])
+        .output();
+    
+    if up_result.is_err() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": "Failed to bring interface up"
+        }));
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "interface": interface,
+        "mode": mode
+    }))
 }
 
 async fn get_ble_devices(

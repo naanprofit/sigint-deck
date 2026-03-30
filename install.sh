@@ -416,10 +416,79 @@ RestartSec=3
 WantedBy=default.target
 EOF
 
+    # Monitor mode script (called on boot and resume from suspend)
+    cat > "$INSTALL_DIR/set-monitor-mode.sh" << 'MONITOREOF'
+#!/bin/bash
+# Set external WiFi adapter to monitor mode
+# Called by systemd on boot and resume from suspend
+
+LOG_TAG="sigint-monitor"
+
+log() {
+    logger -t "$LOG_TAG" "$1"
+    echo "$1"
+}
+
+# Wait for interface to appear
+sleep 2
+
+# Find external WiFi adapter (not wlan0)
+IFACE=$(ip link show 2>/dev/null | grep -oE "wlan[0-9]+" | grep -v wlan0 | head -1)
+
+if [ -z "$IFACE" ]; then
+    log "No external WiFi adapter found"
+    exit 0
+fi
+
+# Check current mode
+CURRENT_MODE=$(iwconfig "$IFACE" 2>/dev/null | grep -oE "Mode:[A-Za-z]+" | cut -d: -f2)
+
+if [ "$CURRENT_MODE" = "Monitor" ]; then
+    log "$IFACE already in Monitor mode"
+    exit 0
+fi
+
+log "Setting $IFACE to Monitor mode..."
+
+# Set monitor mode
+ip link set "$IFACE" down 2>/dev/null
+iw dev "$IFACE" set type monitor 2>/dev/null
+ip link set "$IFACE" up 2>/dev/null
+
+# Verify
+NEW_MODE=$(iwconfig "$IFACE" 2>/dev/null | grep -oE "Mode:[A-Za-z]+" | cut -d: -f2)
+log "$IFACE is now in $NEW_MODE mode"
+MONITOREOF
+    chmod +x "$INSTALL_DIR/set-monitor-mode.sh"
+
+    # Monitor mode service (runs on boot and resume)
+    cat > "$HOME/.config/systemd/user/sigint-monitor-mode.service" << EOF
+[Unit]
+Description=Set WiFi adapter to Monitor mode
+After=network.target
+Before=sigint-deck.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sudo $INSTALL_DIR/set-monitor-mode.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Add sudoers entry for monitor mode script
+    echo -e "${YELLOW}Adding sudoers entry for monitor mode script...${NC}"
+    SUDOERS_MONITOR="$USER ALL=(ALL) NOPASSWD: $INSTALL_DIR/set-monitor-mode.sh"
+    if ! sudo grep -qF "$SUDOERS_MONITOR" /etc/sudoers.d/sigint-deck 2>/dev/null; then
+        echo "$SUDOERS_MONITOR" | sudo tee -a /etc/sudoers.d/sigint-deck > /dev/null
+    fi
+
     # Reload and enable
     systemctl --user daemon-reload
     systemctl --user enable sigint-deck.service
     systemctl --user enable channel-hop.service
+    systemctl --user enable sigint-monitor-mode.service
     
     # Enable lingering for user services
     sudo loginctl enable-linger "$USER"
