@@ -38,9 +38,9 @@ port = 8080
 
 [learning]
 enabled = true
-training_hours = 24
-anomaly_threshold = 0.7
-geofence_radius_meters = 100.0
+training_hours = 1              # Hours to learn baseline (1 = faster, 24 = thorough)
+anomaly_threshold = 0.7         # Score > this = anomalous (0.0-1.0)
+geofence_radius_meters = 100.0  # Distance to trigger location change
 
 [power]
 low_power_mode = false

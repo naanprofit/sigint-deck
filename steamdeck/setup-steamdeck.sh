@@ -199,6 +199,14 @@ if [ -f "$SCRIPT_DIR/channel-hop.sh" ]; then
     chown deck:deck /home/deck/sigint-pi/channel-hop.sh
 fi
 
+# Copy Steam launch script
+if [ -f "$SCRIPT_DIR/launch-in-steam.sh" ]; then
+    cp "$SCRIPT_DIR/launch-in-steam.sh" /home/deck/sigint-pi/launch-in-steam.sh
+    chmod +x /home/deck/sigint-pi/launch-in-steam.sh
+    chown deck:deck /home/deck/sigint-pi/launch-in-steam.sh
+    echo "  Steam launch script installed: ~/sigint-pi/launch-in-steam.sh"
+fi
+
 # 8. Set up channel-hop user service
 echo "[8/8] Setting up channel-hop service..."
 mkdir -p /home/deck/.config/systemd/user
@@ -241,4 +249,10 @@ echo "  wlan1 = External USB (9c:ef:d5:f8:95:2d) - monitor mode capture"
 echo ""
 echo "Verify channel hopping:"
 echo "  for i in {1..10}; do iw dev wlan1 info | grep channel; sleep 0.4; done"
+echo ""
+echo "To add to Steam (Gaming Mode):"
+echo "  1. Open Steam in Desktop Mode"
+echo "  2. Games -> Add a Non-Steam Game"
+echo "  3. Browse to: /home/deck/sigint-pi/launch-in-steam.sh"
+echo "  4. Rename to 'SIGINT-Deck' in properties"
 echo ""

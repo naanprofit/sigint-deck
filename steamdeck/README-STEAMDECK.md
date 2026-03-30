@@ -2,7 +2,34 @@
 
 ## Overview
 
-SIGINT-Pi runs on Steam Deck as a native binary (not container) for best performance and hardware access.
+SIGINT-Deck runs on Steam Deck as a native binary (not container) for best performance and hardware access.
+
+## What's Shared with SIGINT-Pi
+
+Most features work on both platforms:
+
+| Feature | SIGINT-Pi (Raspberry Pi) | SIGINT-Deck (Steam Deck) |
+|---------|--------------------------|--------------------------|
+| WiFi Monitor Mode | Yes (with compatible adapter) | Yes (external USB only) |
+| BLE Scanning | Yes | Yes |
+| GPS Support | Yes | Yes |
+| Device Learning/ML | Yes | Yes |
+| Anomaly Detection | Yes | Yes |
+| Device Fingerprinting | Yes | Yes |
+| Web Dashboard | Yes | Yes |
+| LLM/AI Analysis | Yes | Yes |
+| PCAP Capture | Yes | Yes |
+| Threat Intel | Yes | Yes |
+| Sound Alerts | Yes | Yes |
+
+### Steam Deck Specific
+
+| Feature | Notes |
+|---------|-------|
+| Gaming Mode Launch | Launch from Steam library |
+| Channel Hopping Service | Separate systemd service (sudoers required) |
+| Interface Naming | systemd .link files for wlan0/wlan1 |
+| Internal WiFi | Does NOT support monitor mode |
 
 ## Hardware Requirements
 
@@ -27,6 +54,52 @@ SIGINT-Pi runs on Steam Deck as a native binary (not container) for best perform
 - Alfa AWUS036ACHM
 - Alfa AWUS036ACH
 - Panda PAU09
+
+## Launch from Steam (Gaming Mode)
+
+You can launch SIGINT-Deck from Steam's Gaming Mode:
+
+### Setup
+
+1. Copy the launch script:
+   ```bash
+   cp ~/sigint-pi/steamdeck/launch-in-steam.sh ~/sigint-pi/
+   chmod +x ~/sigint-pi/launch-in-steam.sh
+   ```
+
+2. In **Desktop Mode**, open Steam
+
+3. Go to **Games → Add a Non-Steam Game**
+
+4. Click **Browse** and navigate to:
+   ```
+   /home/deck/sigint-pi/launch-in-steam.sh
+   ```
+
+5. Click **Add Selected Programs**
+
+6. Find it in your library, right-click → **Properties**:
+   - Rename to "SIGINT-Deck"
+   - Optionally set a custom icon
+
+### Usage in Gaming Mode
+
+1. Launch "SIGINT-Deck" from your library
+2. Press the **Steam button** to open overlay
+3. Select **Web Browser** from overlay
+4. Dashboard loads automatically at `http://localhost:8080`
+
+The launch script:
+- Starts all required services
+- Opens the dashboard in Steam's browser
+- Shows live status in the terminal
+
+### Controller Navigation
+
+The web dashboard is touch/controller friendly:
+- D-pad/stick to navigate
+- A button to select
+- Tabs at top: WiFi, BLE, New, Alerts, Attacks, GPS, Settings
 
 ## Installation
 
@@ -578,6 +651,74 @@ The Settings tab in the dashboard provides:
 - Provider selection
 - Endpoint configuration
 - Test connection button
+
+## Device Learning & Anomaly Detection
+
+SIGINT-Deck learns your environment over time, similar to Pwnagotchi.
+
+### How It Works
+
+1. **Training Period** (default: 1 hour)
+   - Collects device statistics
+   - Learns which devices are "normal"
+   - No anomaly alerts during training
+
+2. **After Training**
+   - New devices flagged immediately
+   - Known devices scored for anomalous behavior
+   - Alerts on unusual patterns
+
+### What's Learned Per Device
+
+| Data | Timeframe | Used For |
+|------|-----------|----------|
+| Signal strength (RSSI) | Immediate | Distance estimation, anomaly scoring |
+| Time-of-day patterns | Hours | Detecting unusual appearance times |
+| Visit frequency | Days | Identifying stalking/following |
+| Probe requests | Immediate | Device fingerprinting |
+| Preferred channels | Hours | Behavioral profiling |
+
+### Anomaly Scoring
+
+Devices are scored 0.0 - 1.0:
+
+- **< 0.5**: Normal
+- **0.5 - 0.7**: Slightly unusual
+- **> 0.7**: Anomalous (alert triggered)
+
+Scoring factors:
+- RSSI deviation from baseline (30%)
+- Unusual time of appearance (30%)
+- Behavioral changes (40%)
+
+### Device Fingerprinting
+
+Creates behavioral fingerprints to:
+- Classify device type (Smartphone, Laptop, IoT, etc.)
+- Detect MAC randomization (same device, different MAC)
+- Calculate mobility score (stationary vs mobile)
+
+### Configuration
+
+```toml
+[learning]
+enabled = true
+training_hours = 1              # Reduce for faster learning
+anomaly_threshold = 0.7         # Lower = more sensitive
+geofence_radius_meters = 100.0  # Resets learning when you move
+```
+
+### Speed Up Learning
+
+For testing, use shorter training:
+```toml
+training_hours = 0.5  # 30 minutes
+```
+
+Or disable learning for immediate anomaly alerts:
+```toml
+enabled = false  # All devices treated as anomalies
+```
 
 ## PCAP Capture
 

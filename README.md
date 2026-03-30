@@ -33,6 +33,13 @@ Portable signals intelligence and security monitoring for Steam Deck.
   - Location tracking with USB GPS
   - Geofencing with alerts
 
+- **Device Learning & Anomaly Detection**
+  - Learns baseline of normal devices over time
+  - Flags new/unknown devices immediately
+  - Detects anomalous behavior patterns
+  - Device fingerprinting (survives MAC randomization)
+  - Configurable training period (default: 1 hour)
+
 - **Multi-Channel Alerts**
   - Sound alerts with Ninja Mode
   - Telegram, Signal, Email, MQTT
@@ -193,6 +200,38 @@ Includes 500+ vendor entries:
 - Consumer devices (Apple, Samsung, Intel, etc.)
 - IoT/Smart Home (MELK LED strips, Govee, Philips Hue, etc.)
 - Threat intel (Harris/Stingray, Hikvision, Dahua, etc.)
+
+## Device Learning
+
+SIGINT-Deck learns your environment over time:
+
+### Training Period
+```toml
+[learning]
+enabled = true
+training_hours = 1    # Hours to establish baseline
+anomaly_threshold = 0.7
+```
+
+### What Happens
+1. **During Training**: Collects device data, no anomaly alerts
+2. **After Training**: Known devices become baseline, new devices flagged
+3. **Location Change**: GPS detects movement > 100m, resets training
+
+### Anomaly Detection
+After training, devices are scored for unusual behavior:
+- Signal strength deviation
+- Unusual time of appearance  
+- Behavioral pattern changes
+
+Score > 0.7 triggers alert.
+
+### Device Fingerprinting
+Creates behavioral profiles that survive MAC randomization:
+- Probe request patterns
+- Time-of-day patterns
+- Associated networks
+- Device classification (Phone, Laptop, IoT, etc.)
 
 ## Troubleshooting
 
