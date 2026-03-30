@@ -163,6 +163,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/ai/analyze", web::post().to(analyze_devices_ai))
             .route("/ai/cache", web::get().to(get_ai_cache))
             .route("/settings/llm/test", web::post().to(test_llm_connection))
+            // Device Notes
+            .route("/devices/{mac}/notes", web::get().to(get_device_notes))
+            .route("/devices/{mac}/notes", web::post().to(add_device_note))
+            .route("/devices/{mac}/notes/{note_id}", web::delete().to(delete_device_note))
+            .route("/notes/recent", web::get().to(get_recent_notes))
+            // Voice transcription
+            .route("/voice/transcribe", web::post().to(transcribe_audio))
+            .route("/voice/status", web::get().to(get_voice_status))
     );
 }
 
@@ -1461,5 +1469,165 @@ async fn list_pcap_files() -> impl Responder {
         "pcap_dir": pcap_dir.to_string_lossy(),
         "files": files,
         "total_count": files.len()
+    }))
+}
+
+// ============================================
+// Device Notes
+// ============================================
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DeviceNote {
+    id: i64,
+    mac_address: String,
+    device_type: String,
+    note_text: String,
+    note_source: String,
+    device_vendor: Option<String>,
+    device_ssid: Option<String>,
+    device_name: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    created_at: String,
+}
+
+async fn get_device_notes(
+    db: web::Data<Arc<Database>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let mac = path.into_inner();
+    
+    match db.get_device_notes(&mac).await {
+        Ok(notes) => HttpResponse::Ok().json(notes),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to get notes: {}", e)
+        }))
+    }
+}
+
+#[derive(Deserialize)]
+struct AddNoteRequest {
+    note_text: String,
+    device_type: Option<String>,
+    note_source: Option<String>,
+    device_vendor: Option<String>,
+    device_ssid: Option<String>,
+    device_name: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+}
+
+async fn add_device_note(
+    db: web::Data<Arc<Database>>,
+    state: web::Data<Arc<AppState>>,
+    path: web::Path<String>,
+    body: web::Json<AddNoteRequest>,
+) -> impl Responder {
+    let mac = path.into_inner();
+    
+    // Get current GPS position if available and not provided
+    let (lat, lon) = if body.latitude.is_some() && body.longitude.is_some() {
+        (body.latitude, body.longitude)
+    } else {
+        let gps = state.gps_status.read().await;
+        if gps.has_fix {
+            (gps.latitude, gps.longitude)
+        } else {
+            (None, None)
+        }
+    };
+    
+    match db.add_device_note(
+        &mac,
+        body.device_type.as_deref().unwrap_or("wifi"),
+        &body.note_text,
+        body.note_source.as_deref().unwrap_or("typed"),
+        body.device_vendor.as_deref(),
+        body.device_ssid.as_deref(),
+        body.device_name.as_deref(),
+        lat,
+        lon,
+    ).await {
+        Ok(id) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "note_id": id,
+            "mac": mac
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to add note: {}", e)
+        }))
+    }
+}
+
+async fn delete_device_note(
+    db: web::Data<Arc<Database>>,
+    path: web::Path<(String, i64)>,
+) -> impl Responder {
+    let (_mac, note_id) = path.into_inner();
+    
+    match db.delete_device_note(note_id).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "deleted_id": note_id
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to delete note: {}", e)
+        }))
+    }
+}
+
+async fn get_recent_notes(
+    db: web::Data<Arc<Database>>,
+) -> impl Responder {
+    match db.get_recent_notes(50).await {
+        Ok(notes) => HttpResponse::Ok().json(notes),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to get recent notes: {}", e)
+        }))
+    }
+}
+
+// ============================================
+// Voice Transcription
+// ============================================
+
+async fn get_voice_status() -> impl Responder {
+    // Check if faster-whisper or whisper is available
+    let whisper_local = std::process::Command::new("which")
+        .arg("faster-whisper")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    
+    let whisper_py = std::process::Command::new("python3")
+        .args(["-c", "import faster_whisper; print('ok')"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "local_whisper_available": whisper_local || whisper_py,
+        "whisper_api_configured": false, // TODO: check config
+        "recommended": if whisper_local || whisper_py { "local" } else { "api" }
+    }))
+}
+
+#[derive(Deserialize)]
+struct TranscribeRequest {
+    audio_base64: Option<String>,
+    audio_path: Option<String>,
+    use_api: Option<bool>,
+}
+
+async fn transcribe_audio(
+    body: web::Json<TranscribeRequest>,
+) -> impl Responder {
+    // For now, return a placeholder - actual implementation requires faster-whisper setup
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": false,
+        "error": "Voice transcription not yet implemented. Install faster-whisper: pip install faster-whisper",
+        "transcription": null
     }))
 }
