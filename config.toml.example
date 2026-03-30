@@ -1,8 +1,8 @@
-# SIGINT-Pi Configuration
-# Copy this file to /etc/sigint-pi/config.toml or ./config.toml
+# SIGINT-Deck Configuration
+# Copy this file to ~/sigint-deck/config.toml
 
 [device]
-name = "sigint-pi-01"
+name = "sigint-deck-01"
 location_name = "home"
 
 [wifi]
@@ -140,14 +140,14 @@ enabled = false
 [llm]
 enabled = true
 provider = "llamacpp"                        # llamacpp, ollama, lmstudio, openai, custom
-endpoint = "http://192.168.50.191:8080"      # llama.cpp server on local network
-# endpoint = "http://localhost:11434"        # Ollama default
-# endpoint = "http://localhost:1234"         # LMStudio default
+endpoint = "http://localhost:8080/v1"        # llama.cpp server (change to your LLM host)
+# endpoint = "http://localhost:11434/v1"     # Ollama default
+# endpoint = "http://localhost:1234/v1"      # LMStudio default
 # endpoint = "https://api.openai.com/v1"     # OpenAI
-api_key = "WZvN7ieTP9cd0EPFf9Z2pQ=="         # Optional for local LLMs, required for OpenAI
-model = "local"                               # Model name (use "local" for llama.cpp)
-max_tokens = 200                              # Max tokens for responses
-timeout_secs = 60                             # Request timeout
+api_key = ""                                 # Optional for local LLMs, required for OpenAI
+model = "local"                              # Model name (your model identifier)
+max_tokens = 200                             # Max tokens for responses
+timeout_secs = 60                            # Request timeout
 
 # InfluxDB Cloud Export (Optional)
 # For time-series metrics and Grafana dashboards

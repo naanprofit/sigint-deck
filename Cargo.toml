@@ -1,10 +1,11 @@
 [package]
-name = "sigint-pi"
+name = "sigint-deck"
 version = "0.1.0"
 edition = "2021"
-authors = ["sigkill"]
-description = "Portable SIGINT security device for Raspberry Pi Zero 2 W"
+authors = ["naanprofit"]
+description = "Portable SIGINT security device for Steam Deck"
 license = "MIT"
+repository = "https://github.com/naanprofit/sigint-deck"
 
 [dependencies]
 # Async runtime

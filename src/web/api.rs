@@ -60,6 +60,18 @@ pub struct BleDeviceInfo {
     pub is_tracker: bool,
     pub first_seen: i64,
     pub last_seen: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracker_info: Option<TrackerInfoApi>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct TrackerInfoApi {
+    pub tracker_type: String,
+    pub status: Option<u8>,
+    pub key_hint: Option<String>,
+    pub is_lost_mode: bool,
+    pub is_separated: bool,
+    pub counter: Option<u8>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -124,6 +136,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/pcap/start", web::post().to(start_pcap_capture))
             .route("/pcap/stop", web::post().to(stop_pcap_capture))
             .route("/pcap/files", web::get().to(list_pcap_files))
+            // AI/LLM
+            .route("/ai/status", web::get().to(get_ai_status))
+            .route("/ai/toggle", web::post().to(toggle_ai))
+            .route("/ai/analyze", web::post().to(analyze_devices_ai))
+            .route("/ai/cache", web::get().to(get_ai_cache))
+            .route("/settings/llm/test", web::post().to(test_llm_connection))
     );
 }
 
@@ -807,32 +825,108 @@ async fn get_settings() -> impl Responder {
     HttpResponse::Ok().json(settings)
 }
 
-/// POST /api/settings - Save all settings
+/// POST /api/settings - Save settings (accepts partial updates)
 async fn save_settings(
-    body: web::Json<crate::settings::AppSettings>,
+    body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    // In a real implementation, this would use SettingsManager to save
-    // For now, write to the settings file directly
-    let settings_path = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("sigint-pi")
-        .join("settings.toml");
+    // Determine config path - check multiple locations
+    let config_paths = [
+        // Home directory sigint folder
+        dirs::home_dir()
+            .map(|h| h.join("sigint-pi").join("config.toml"))
+            .unwrap_or_default(),
+        dirs::home_dir()
+            .map(|h| h.join("sigint-deck").join("config.toml"))
+            .unwrap_or_default(),
+        // Current directory
+        std::path::PathBuf::from("./config.toml"),
+    ];
     
-    match toml::to_string_pretty(&body.into_inner()) {
+    // Find existing config
+    let settings_path = config_paths.iter()
+        .find(|p| p.exists())
+        .cloned()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join("sigint-pi").join("config.toml"))
+                .unwrap_or_else(|| std::path::PathBuf::from("./config.toml"))
+        });
+    
+    // Load existing config file
+    let existing_content = std::fs::read_to_string(&settings_path).unwrap_or_default();
+    let mut existing: toml::Value = toml::from_str(&existing_content).unwrap_or_else(|_| {
+        toml::Value::Table(toml::map::Map::new())
+    });
+    
+    // Get the incoming settings as JSON
+    let incoming = body.into_inner();
+    
+    // Merge incoming settings into existing config
+    if let (toml::Value::Table(ref mut existing_table), Some(incoming_obj)) = (&mut existing, incoming.as_object()) {
+        // Handle LLM settings
+        if let Some(llm) = incoming_obj.get("llm") {
+            let mut llm_table = toml::map::Map::new();
+            if let Some(obj) = llm.as_object() {
+                if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
+                    llm_table.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                }
+                if let Some(provider) = obj.get("provider").and_then(|v| v.as_str()) {
+                    llm_table.insert("provider".to_string(), toml::Value::String(provider.to_string()));
+                }
+                if let Some(endpoint) = obj.get("endpoint").and_then(|v| v.as_str()) {
+                    llm_table.insert("endpoint".to_string(), toml::Value::String(endpoint.to_string()));
+                }
+                if let Some(model) = obj.get("model").and_then(|v| v.as_str()) {
+                    llm_table.insert("model".to_string(), toml::Value::String(model.to_string()));
+                }
+            }
+            if !llm_table.is_empty() {
+                existing_table.insert("llm".to_string(), toml::Value::Table(llm_table));
+            }
+        }
+        
+        // Handle general settings
+        if let Some(general) = incoming_obj.get("general") {
+            if let Some(obj) = general.as_object() {
+                if let Some(ninja_mode) = obj.get("ninja_mode").and_then(|v| v.as_bool()) {
+                    // Update alerts.sound.ninja_mode
+                    if let Some(alerts) = existing_table.get_mut("alerts") {
+                        if let toml::Value::Table(ref mut alerts_table) = alerts {
+                            if let Some(sound) = alerts_table.get_mut("sound") {
+                                if let toml::Value::Table(ref mut sound_table) = sound {
+                                    sound_table.insert("ninja_mode".to_string(), toml::Value::Boolean(ninja_mode));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Write back to file
+    match toml::to_string_pretty(&existing) {
         Ok(content) => {
             if let Some(parent) = settings_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            match std::fs::write(&settings_path, content) {
-                Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-                    "success": true,
-                    "message": "Settings saved",
-                    "path": settings_path.to_string_lossy()
-                })),
-                Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-                    "success": false,
-                    "error": format!("Failed to write settings: {}", e)
-                }))
+            match std::fs::write(&settings_path, &content) {
+                Ok(_) => {
+                    tracing::info!("Settings saved to {:?}", settings_path);
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "message": "Settings saved. Restart required for changes to take effect.",
+                        "path": settings_path.to_string_lossy(),
+                        "restart_required": true
+                    }))
+                },
+                Err(e) => {
+                    tracing::error!("Failed to save settings: {}", e);
+                    HttpResponse::InternalServerError().json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to write settings: {}", e)
+                    }))
+                }
             }
         }
         Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
@@ -982,22 +1076,20 @@ struct PcapStatus {
     started_at: Option<i64>,
 }
 
-// Global state for PCAP capture (in production, use Arc<RwLock<>>)
-static PCAP_CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// GET /api/pcap/status - Get PCAP capture status
 async fn get_pcap_status() -> impl Responder {
+    let (capturing, packets, bytes) = crate::wifi::scanner::get_pcap_stats();
     let settings = crate::settings::AppSettings::default();
     
     HttpResponse::Ok().json(PcapStatus {
-        capturing: PCAP_CAPTURING.load(std::sync::atomic::Ordering::SeqCst),
-        current_file: if settings.wifi.capture_pcap { 
+        capturing,
+        current_file: if capturing || settings.wifi.capture_pcap { 
             Some(settings.wifi.pcap_dir.join("capture.pcap").to_string_lossy().to_string())
         } else { 
             None 
         },
-        file_size_bytes: None,
-        packets_captured: None,
+        file_size_bytes: Some(bytes),
+        packets_captured: Some(packets),
         started_at: None,
     })
 }
@@ -1014,7 +1106,8 @@ async fn start_pcap_capture(
 ) -> impl Responder {
     let req = body.into_inner();
     
-    if PCAP_CAPTURING.load(std::sync::atomic::Ordering::SeqCst) {
+    let (already_capturing, _, _) = crate::wifi::scanner::get_pcap_stats();
+    if already_capturing {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "PCAP capture already running"
         }));
@@ -1031,7 +1124,7 @@ async fn start_pcap_capture(
         let _ = std::fs::create_dir_all(parent);
     }
     
-    PCAP_CAPTURING.store(true, std::sync::atomic::Ordering::SeqCst);
+    crate::wifi::scanner::start_pcap_capture();
     
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -1043,17 +1136,21 @@ async fn start_pcap_capture(
 
 /// POST /api/pcap/stop - Stop PCAP capture
 async fn stop_pcap_capture() -> impl Responder {
-    if !PCAP_CAPTURING.load(std::sync::atomic::Ordering::SeqCst) {
+    let (capturing, packets, bytes) = crate::wifi::scanner::get_pcap_stats();
+    
+    if !capturing {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "PCAP capture not running"
         }));
     }
     
-    PCAP_CAPTURING.store(false, std::sync::atomic::Ordering::SeqCst);
+    crate::wifi::scanner::stop_pcap_capture();
     
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "message": "PCAP capture stopped"
+        "message": "PCAP capture stopped",
+        "packets_captured": packets,
+        "bytes_captured": bytes
     }))
 }
 

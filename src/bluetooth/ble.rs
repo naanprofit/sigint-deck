@@ -62,6 +62,7 @@ pub enum BleDeviceType {
     AirTag,
     Tile,
     SmartHome,
+    SmartLight,  // LED strips, bulbs (MELK, Govee, Philips Hue, etc.)
     Fitness,
     Medical,
 }
@@ -247,6 +248,14 @@ impl BleScanner {
         if let Some(ref name) = properties.local_name {
             let name_lower = name.to_lowercase();
             
+            // Smart LED lights (MELK, ELK-BLEDOM, Govee, etc.)
+            if name_lower.contains("melk") || name_lower.contains("elk-bledom") || 
+               name_lower.contains("ledble") || name_lower.contains("triones") ||
+               name_lower.contains("govee") || name_lower.contains("led strip") ||
+               name_lower.contains("hue") || name_lower.contains("lifx") ||
+               name_lower.contains("bulb") || name_lower.contains("light") && name_lower.contains("led") {
+                return (BleDeviceType::SmartLight, None);
+            }
             if name_lower.contains("phone") || name_lower.contains("iphone") || name_lower.contains("galaxy") {
                 return (BleDeviceType::Phone, None);
             }
@@ -261,6 +270,11 @@ impl BleScanner {
             }
             if name_lower.contains("speaker") || name_lower.contains("sonos") || name_lower.contains("jbl") {
                 return (BleDeviceType::Speaker, None);
+            }
+            // Generic smart home
+            if name_lower.contains("nest") || name_lower.contains("echo") || name_lower.contains("alexa") ||
+               name_lower.contains("ring") || name_lower.contains("wyze") || name_lower.contains("tuya") {
+                return (BleDeviceType::SmartHome, None);
             }
         }
 

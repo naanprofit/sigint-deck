@@ -1,6 +1,6 @@
 mod api;
 
-pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, HardwareStatusInfo};
+pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, HardwareStatusInfo, TrackerInfoApi};
 
 use actix_web::{web, App, HttpServer, middleware};
 use std::sync::Arc;
@@ -33,11 +33,15 @@ pub async fn start_server(
                     let mut devices = state_clone.wifi_devices.write().await;
                     let now = Utc::now().timestamp();
                     
+                    // Devices are "new" for 60 seconds after first seen
+                    const NEW_DEVICE_WINDOW_SECS: i64 = 60;
+                    
                     // Check if device exists
                     if let Some(existing) = devices.iter_mut().find(|d| d.mac == device.mac_address) {
                         existing.rssi = device.rssi;
                         existing.last_seen = now;
-                        existing.is_new = false;
+                        // Update is_new based on time since first seen
+                        existing.is_new = (now - existing.first_seen) < NEW_DEVICE_WINDOW_SECS;
                     } else {
                         devices.push(WifiDeviceInfo {
                             mac: device.mac_address.clone(),
@@ -64,10 +68,28 @@ pub async fn start_server(
                         crate::bluetooth::BleDeviceType::Tile
                     );
                     
+                    // Devices are "new" for 60 seconds after first seen
+                    const NEW_DEVICE_WINDOW_SECS: i64 = 60;
+                    
+                    // Convert tracker_info if present
+                    let tracker_info_api = device.tracker_info.as_ref().map(|ti| TrackerInfoApi {
+                        tracker_type: ti.tracker_type.clone(),
+                        status: ti.status,
+                        key_hint: ti.key_hint.clone(),
+                        is_lost_mode: ti.is_lost_mode,
+                        is_separated: ti.is_separated,
+                        counter: ti.counter,
+                    });
+                    
                     if let Some(existing) = devices.iter_mut().find(|d| d.mac == device.mac_address) {
                         existing.rssi = device.rssi;
                         existing.last_seen = now;
-                        existing.is_new = false;
+                        // Update is_new based on time since first seen
+                        existing.is_new = (now - existing.first_seen) < NEW_DEVICE_WINDOW_SECS;
+                        // Update tracker info if present
+                        if tracker_info_api.is_some() {
+                            existing.tracker_info = tracker_info_api;
+                        }
                     } else {
                         devices.push(BleDeviceInfo {
                             mac: device.mac_address.clone(),
@@ -79,6 +101,7 @@ pub async fn start_server(
                             is_tracker,
                             first_seen: now,
                             last_seen: now,
+                            tracker_info: tracker_info_api,
                         });
                     }
                     
