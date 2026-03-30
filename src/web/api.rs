@@ -168,13 +168,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/devices/{mac}/notes", web::post().to(add_device_note))
             .route("/devices/{mac}/notes/{note_id}", web::delete().to(delete_device_note))
             .route("/notes/recent", web::get().to(get_recent_notes))
-            // Voice transcription
+            // Voice (STT/TTS)
             .route("/voice/transcribe", web::post().to(transcribe_audio))
+            .route("/voice/speak", web::post().to(speak_text))
             .route("/voice/status", web::get().to(get_voice_status))
             // OUI Database
             .route("/oui/status", web::get().to(get_oui_status))
             .route("/oui/update", web::post().to(update_oui_database))
             .route("/oui/lookup/{mac}", web::get().to(lookup_oui))
+            // LLM Analysis
+            .route("/llm/analyze-device", web::post().to(llm_analyze_device))
+            .route("/llm/system-prompt", web::get().to(get_llm_system_prompt))
     );
 }
 
@@ -1674,10 +1678,31 @@ async fn get_voice_status() -> impl Responder {
         .map(|o| o.status.success())
         .unwrap_or(false);
     
+    // Check for Piper TTS
+    let piper_available = std::process::Command::new("which")
+        .arg("piper")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    
+    let piper_py = std::process::Command::new("python3")
+        .args(["-c", "import piper; print('ok')"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    
     HttpResponse::Ok().json(serde_json::json!({
-        "local_whisper_available": whisper_local || whisper_py,
-        "whisper_api_configured": false, // TODO: check config
-        "recommended": if whisper_local || whisper_py { "local" } else { "api" }
+        "whisper": {
+            "local_available": whisper_local || whisper_py,
+            "api_configured": false,
+            "model": "base.en"
+        },
+        "piper": {
+            "available": piper_available || piper_py,
+            "model": "en_US-lessac-medium"
+        },
+        "recommended_stt": if whisper_local || whisper_py { "local" } else { "api" },
+        "recommended_tts": if piper_available || piper_py { "piper" } else { "browser" }
     }))
 }
 
@@ -1689,14 +1714,137 @@ struct TranscribeRequest {
 }
 
 async fn transcribe_audio(
-    _body: web::Json<TranscribeRequest>,
+    body: web::Json<TranscribeRequest>,
 ) -> impl Responder {
-    // For now, return a placeholder - actual implementation requires faster-whisper setup
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": false,
-        "error": "Voice transcription not yet implemented. Install faster-whisper: pip install faster-whisper",
-        "transcription": null
-    }))
+    // Get audio data
+    let audio_path = if let Some(path) = &body.audio_path {
+        path.clone()
+    } else if let Some(b64) = &body.audio_base64 {
+        // Decode base64 and save to temp file
+        let temp_path = "/tmp/sigint-audio-input.wav";
+        match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64) {
+            Ok(data) => {
+                if let Err(e) = std::fs::write(temp_path, &data) {
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to write temp audio: {}", e)
+                    }));
+                }
+                temp_path.to_string()
+            }
+            Err(e) => {
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Invalid base64 audio: {}", e)
+                }));
+            }
+        }
+    } else {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "No audio provided (need audio_base64 or audio_path)"
+        }));
+    };
+    
+    // Try faster-whisper first
+    let script = format!(r#"
+import sys
+try:
+    from faster_whisper import WhisperModel
+    model = WhisperModel("base.en", device="cpu", compute_type="int8")
+    segments, _ = model.transcribe("{}", beam_size=5)
+    text = " ".join([s.text for s in segments])
+    print(text.strip())
+except Exception as e:
+    print(f"ERROR: {{e}}", file=sys.stderr)
+    sys.exit(1)
+"#, audio_path.replace("\"", "\\\""));
+    
+    let output = std::process::Command::new("python3")
+        .args(["-c", &script])
+        .output();
+    
+    match output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "transcription": text,
+                "model": "faster-whisper-base.en",
+                "source": "local"
+            }))
+        }
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": false,
+                "error": format!("Transcription failed: {}", err),
+                "hint": "Install faster-whisper: pip install faster-whisper"
+            }))
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to run whisper: {}", e)
+            }))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SpeakRequest {
+    text: String,
+    voice: Option<String>,
+}
+
+async fn speak_text(
+    body: web::Json<SpeakRequest>,
+) -> impl Responder {
+    let voice = body.voice.as_deref().unwrap_or("en_US-lessac-medium");
+    let output_path = "/tmp/sigint-speech-output.wav";
+    
+    // Try piper first
+    let result = std::process::Command::new("piper")
+        .args(["--model", voice, "--output_file", output_path])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                stdin.write_all(body.text.as_bytes())?;
+            }
+            child.wait()
+        });
+    
+    match result {
+        Ok(status) if status.success() => {
+            // Read and return audio as base64
+            match std::fs::read(output_path) {
+                Ok(data) => {
+                    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "audio_base64": b64,
+                        "format": "wav",
+                        "engine": "piper"
+                    }))
+                }
+                Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to read audio output: {}", e)
+                }))
+            }
+        }
+        _ => {
+            // Piper not available, return instructions
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": false,
+                "error": "Piper TTS not available",
+                "hint": "Install piper: pip install piper-tts",
+                "fallback": "browser"
+            }))
+        }
+    }
 }
 
 // ============================================
@@ -1899,5 +2047,234 @@ async fn lookup_oui(
     HttpResponse::Ok().json(serde_json::json!({
         "mac": mac,
         "found": false
+    }))
+}
+
+// ============================================
+// LLM Analysis
+// ============================================
+
+const LLM_SYSTEM_PROMPT: &str = include_str!("../../data/llm-system-prompt.md");
+
+async fn get_llm_system_prompt() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("text/markdown")
+        .body(LLM_SYSTEM_PROMPT)
+}
+
+#[derive(Deserialize)]
+struct LlmAnalyzeRequest {
+    mac: String,
+    rssi: Option<i32>,
+    ssid: Option<String>,
+    device_name: Option<String>,
+    device_type: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+}
+
+async fn llm_analyze_device(
+    body: web::Json<LlmAnalyzeRequest>,
+    config: web::Data<Arc<Config>>,
+) -> impl Responder {
+    let mac = &body.mac;
+    
+    // First, look up the OUI
+    let oui_info: Option<serde_json::Value> = {
+        let db_path = get_oui_db_path();
+        let oui_prefix = mac.replace("-", ":").to_uppercase().chars().take(8).collect::<String>();
+        
+        if db_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&db_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    json.get("entries")
+                        .and_then(|e| e.get(&oui_prefix))
+                        .cloned()
+                } else {
+                    None
+                }
+            } else { 
+                None 
+            }
+        } else { 
+            None 
+        }
+    };
+    
+    // Build context for LLM
+    let mut context = format!("Analyze this device:\n\nMAC Address: {}\n", mac);
+    
+    if let Some(rssi) = body.rssi {
+        context.push_str(&format!("Signal Strength: {} dBm\n", rssi));
+    }
+    if let Some(ssid) = &body.ssid {
+        context.push_str(&format!("SSID: {}\n", ssid));
+    }
+    if let Some(name) = &body.device_name {
+        context.push_str(&format!("Device Name: {}\n", name));
+    }
+    if let Some(dtype) = &body.device_type {
+        context.push_str(&format!("Device Type: {}\n", dtype));
+    }
+    if let (Some(lat), Some(lon)) = (body.latitude, body.longitude) {
+        context.push_str(&format!("Location: {:.6}, {:.6}\n", lat, lon));
+    }
+    
+    // Add OUI lookup results
+    if let Some(info) = &oui_info {
+        context.push_str("\nOUI Database Lookup:\n");
+        if let Some(vendor) = info.get("vendor").and_then(|v| v.as_str()) {
+            context.push_str(&format!("  Vendor: {}\n", vendor));
+        }
+        if let Some(country) = info.get("country").and_then(|v| v.as_str()) {
+            context.push_str(&format!("  Country: {}\n", country));
+        }
+        if let Some(cat) = info.get("threat_category").and_then(|v| v.as_str()) {
+            context.push_str(&format!("  Threat Category: {}\n", cat));
+        }
+        if let Some(level) = info.get("threat_level").and_then(|v| v.as_str()) {
+            context.push_str(&format!("  Threat Level: {}\n", level));
+        }
+    } else {
+        // Check if MAC is locally administered (randomized)
+        if let Ok(first_byte) = u8::from_str_radix(&mac[..2], 16) {
+            if (first_byte & 0x02) != 0 {
+                context.push_str("\nNote: This is a locally administered (randomized) MAC address.\n");
+                context.push_str("No vendor lookup possible - device is using MAC randomization for privacy.\n");
+            } else {
+                context.push_str("\nOUI not found in database.\n");
+            }
+        }
+    }
+    
+    context.push_str("\nProvide a threat assessment and recommendations.");
+    
+    // Check if LLM is configured
+    let llm_config = config.llm.as_ref();
+    let llm_enabled = llm_config.map(|c| c.enabled).unwrap_or(false);
+    
+    if !llm_enabled {
+        // Return pre-computed assessment without LLM
+        let threat_level = oui_info.as_ref()
+            .and_then(|i: &serde_json::Value| i.get("threat_level"))
+            .and_then(|v: &serde_json::Value| v.as_str())
+            .unwrap_or("unknown");
+        
+        let assessment = match threat_level {
+            "critical" => "CRITICAL THREAT - Possible active surveillance or intelligence equipment detected.",
+            "high" => "HIGH THREAT - Device may be associated with government, law enforcement, or surveillance vendors.",
+            "medium" => "MEDIUM THREAT - Device may be a tracking device or have monitoring capabilities.",
+            "low" => "LOW THREAT - Device uses chipset with known vulnerabilities but is likely consumer hardware.",
+            _ => "UNKNOWN - Device not in threat database. May be randomized MAC or unlisted vendor."
+        };
+        
+        return HttpResponse::Ok().json(serde_json::json!({
+            "mac": mac,
+            "oui_info": oui_info,
+            "assessment": assessment,
+            "threat_level": threat_level,
+            "llm_used": false,
+            "context": context
+        }));
+    }
+    
+    // Call LLM for analysis
+    let llm = llm_config.unwrap(); // Safe because we checked llm_enabled
+    let llm_endpoint = &llm.endpoint;
+    let llm_model = &llm.model;
+    
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to create HTTP client: {}", e)
+            }));
+        }
+    };
+    
+    // Determine API format based on provider
+    let provider = llm.provider.to_lowercase();
+    let (api_url, request_body) = if provider.contains("ollama") {
+        (
+            format!("{}/api/chat", llm_endpoint.trim_end_matches('/')),
+            serde_json::json!({
+                "model": llm_model,
+                "messages": [
+                    {"role": "system", "content": LLM_SYSTEM_PROMPT},
+                    {"role": "user", "content": context}
+                ],
+                "stream": false
+            })
+        )
+    } else {
+        // OpenAI-compatible format
+        (
+            format!("{}/v1/chat/completions", llm_endpoint.trim_end_matches('/')),
+            serde_json::json!({
+                "model": llm_model,
+                "messages": [
+                    {"role": "system", "content": LLM_SYSTEM_PROMPT},
+                    {"role": "user", "content": context}
+                ],
+                "max_tokens": 500
+            })
+        )
+    };
+    
+    let response = match client.post(&api_url)
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "mac": mac,
+                "oui_info": oui_info,
+                "error": format!("LLM request failed: {}", e),
+                "llm_used": false,
+                "context": context
+            }));
+        }
+    };
+    
+    let llm_response: serde_json::Value = match response.json().await {
+        Ok(j) => j,
+        Err(e) => {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "mac": mac,
+                "oui_info": oui_info,
+                "error": format!("Failed to parse LLM response: {}", e),
+                "llm_used": false
+            }));
+        }
+    };
+    
+    // Extract response text based on format
+    let analysis = if provider.contains("ollama") {
+        llm_response.get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("No response")
+            .to_string()
+    } else {
+        llm_response.get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("No response")
+            .to_string()
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "mac": mac,
+        "oui_info": oui_info,
+        "analysis": analysis,
+        "llm_used": true,
+        "model": llm_model
     }))
 }

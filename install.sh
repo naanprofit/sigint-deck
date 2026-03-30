@@ -643,10 +643,25 @@ setup_python_venv() {
         return 1
     }
     
-    # Install vdf library
+    # Install required Python packages
+    echo -e "${BLUE}Installing Python packages...${NC}"
+    "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip 2>/dev/null
     "$INSTALL_DIR/.venv/bin/pip" install --quiet vdf 2>/dev/null || {
         echo -e "${YELLOW}Could not install vdf library${NC}"
-        return 1
+    }
+    
+    # Install voice packages (optional - may fail on some systems)
+    echo -e "${BLUE}Installing voice packages (optional)...${NC}"
+    "$INSTALL_DIR/.venv/bin/pip" install --quiet faster-whisper 2>/dev/null && {
+        echo -e "${GREEN}✓ faster-whisper installed (speech-to-text)${NC}"
+    } || {
+        echo -e "${YELLOW}⚠ faster-whisper not installed (voice notes disabled)${NC}"
+    }
+    
+    "$INSTALL_DIR/.venv/bin/pip" install --quiet piper-tts 2>/dev/null && {
+        echo -e "${GREEN}✓ piper-tts installed (text-to-speech)${NC}"
+    } || {
+        echo -e "${YELLOW}⚠ piper-tts not installed (TTS disabled)${NC}"
     }
     
     # Create add-to-steam script
