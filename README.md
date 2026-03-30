@@ -269,6 +269,12 @@ This software is for **authorized security research only**.
 - Unauthorized interception is illegal in most jurisdictions
 - You are solely responsible for legal compliance
 
+## Support
+
+If you find SIGINT-Deck useful, consider supporting development:
+
+**Bitcoin:** `3GD3hpufcCPCemfQdoAFu9JH5Td5US1pzJ`
+
 ## License
 
 MIT License
