@@ -2014,12 +2014,19 @@
             // Update status display
             if (voiceCapabilities.whisper || voiceCapabilities.browserStt) {
                 statusEl.textContent = voiceCapabilities.whisper 
-                    ? '🎤 Whisper STT available' 
+                    ? '🎤 Whisper STT available - auto transcription' 
                     : '🎤 Browser speech recognition available';
                 statusEl.className = 'voice-status available';
             } else {
-                statusEl.textContent = '⚠️ Voice recording: Type notes manually';
-                statusEl.className = 'voice-status unavailable';
+                // Check if MediaRecorder is available (most browsers support it)
+                const hasMediaRecorder = typeof MediaRecorder !== 'undefined';
+                if (hasMediaRecorder) {
+                    statusEl.textContent = '🎤 Record audio, then type note manually (install Whisper for auto-transcription)';
+                    statusEl.className = 'voice-status';
+                } else {
+                    statusEl.textContent = '⚠️ Voice not supported - type notes manually';
+                    statusEl.className = 'voice-status unavailable';
+                }
             }
         }
         
@@ -2188,23 +2195,24 @@
                 return;
             }
             
-            // Fallback: record audio for server-side transcription (Whisper)
-            if (voiceCapabilities.whisper) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
+            // Fallback: record audio using MediaRecorder
+            // Works even without Whisper - user can playback and type manually
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    lastRecordedBlob = audioBlob;
+                    document.getElementById('voicePlayBtn').disabled = false;
                     
-                    mediaRecorder.ondataavailable = (event) => {
-                        audioChunks.push(event.data);
-                    };
-                    
-                    mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        lastRecordedBlob = audioBlob;
-                        document.getElementById('voicePlayBtn').disabled = false;
-                        
-                        // Send to Whisper for transcription
+                    // If Whisper is available, send for transcription
+                    if (voiceCapabilities.whisper) {
                         label.textContent = 'Transcribing...';
                         try {
                             const formData = new FormData();
@@ -2223,19 +2231,21 @@
                             console.error('Transcription failed:', e);
                         }
                         label.textContent = 'Record Voice';
-                    };
-                    
-                    mediaRecorder.start();
-                    isRecording = true;
-                    btn.classList.add('recording');
-                    label.textContent = 'Stop Recording';
-                } catch (e) {
-                    alert('Microphone access denied: ' + e.message);
-                }
-                return;
+                    } else {
+                        // No Whisper - just notify user to type manually
+                        label.textContent = 'Record Voice';
+                        document.getElementById('noteText').placeholder = 
+                            'Recording saved! Play it back and type your note. Install Whisper for auto-transcription.';
+                    }
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                btn.classList.add('recording');
+                label.textContent = 'Stop Recording';
+            } catch (e) {
+                alert('Microphone access denied: ' + e.message);
             }
-            
-            alert('Voice recording not available. Please type your note.');
         }
         
         function stopRecording() {
