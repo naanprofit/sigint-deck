@@ -188,6 +188,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/sdr/cellular/scan", web::post().to(scan_cell_towers))
             .route("/sdr/drone/signals", web::get().to(get_drone_signals))
             .route("/sdr/drone/scan", web::post().to(scan_drones))
+            .route("/sdr/drone/scan/full", web::post().to(scan_drones_full))
+            .route("/sdr/drone/emi", web::post().to(scan_drone_emi))
             .route("/sdr/drone/start", web::post().to(start_drone_monitor))
             .route("/sdr/drone/stop", web::post().to(stop_drone_monitor))
             // SDR Presets
@@ -2780,6 +2782,347 @@ fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> 
     } else {
         None
     }
+}
+
+// ============================================
+// EMI / Motor Harmonic Detection
+// ============================================
+
+static EMI_SIGNALS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static COMBINED_DRONE_DETECTIONS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+/// Scan for drone motor EMI (electronic noise from ESCs)
+async fn scan_drone_emi() -> impl Responder {
+    let caps = SdrCapabilities::detect();
+    
+    if !caps.rtl_sdr {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "RTL-SDR required for EMI detection",
+            "hint": "EMI detection uses direct sampling mode to detect motor harmonics in VLF/LF bands"
+        }));
+    }
+    
+    // Scan VLF/LF bands for motor EMI (5 kHz to 500 kHz)
+    // Uses direct sampling mode (-E 2) to bypass tuner
+    let output = tokio::process::Command::new("rtl_power")
+        .args(&[
+            "-f", "5k:500k:1k",  // 5 kHz to 500 kHz, 1 kHz steps
+            "-i", "1",           // 1 second integration
+            "-1",                // Single sweep
+            "-E", "2",           // Direct sampling Q-branch
+        ])
+        .output()
+        .await;
+    
+    let mut emi_detections = Vec::new();
+    
+    match output {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            emi_detections = analyze_emi_spectrum(&stdout);
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            // Try hackrf as fallback
+            if caps.hackrf {
+                let hackrf_out = tokio::process::Command::new("hackrf_sweep")
+                    .args(&["-f", "0:1", "-w", "10000", "-1"])
+                    .output()
+                    .await;
+                
+                if let Ok(hout) = hackrf_out {
+                    let stdout = String::from_utf8_lossy(&hout.stdout);
+                    emi_detections = analyze_emi_spectrum(&stdout);
+                }
+            } else {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": "EMI scan failed",
+                    "details": stderr.to_string(),
+                    "hint": "RTL-SDR may not support direct sampling mode. Try with HackRF."
+                }));
+            }
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to execute EMI scan: {}", e)
+            }));
+        }
+    }
+    
+    // Update global state
+    {
+        let mut signals = EMI_SIGNALS.lock().unwrap();
+        *signals = emi_detections.clone();
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "emi_signals_found": emi_detections.len(),
+        "emi_signals": emi_detections,
+        "scan_range_khz": [5, 500],
+        "detection_method": "motor_esc_harmonics",
+        "description": "Detects electronic noise from drone ESC/motor switching frequencies"
+    }))
+}
+
+/// Analyze EMI spectrum for motor harmonics
+fn analyze_emi_spectrum(output: &str) -> Vec<serde_json::Value> {
+    let mut detections = Vec::new();
+    let mut power_by_freq: std::collections::HashMap<u64, f64> = std::collections::HashMap::new();
+    
+    // Parse spectrum data
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        
+        if let (Ok(hz_low), Ok(hz_step)) = (
+            parts[2].trim().parse::<u64>(),
+            parts[4].trim().parse::<u64>(),
+        ) {
+            for (i, db_str) in parts[6..].iter().enumerate() {
+                if let Ok(power_db) = db_str.trim().parse::<f64>() {
+                    let freq_hz = hz_low + (i as u64 * hz_step);
+                    power_by_freq.insert(freq_hz, power_db);
+                }
+            }
+        }
+    }
+    
+    // Find peaks and check for harmonic patterns
+    let mut peaks: Vec<(u64, f64)> = power_by_freq.iter()
+        .filter(|(_, &p)| p > -50.0)  // Above threshold
+        .map(|(&f, &p)| (f, p))
+        .collect();
+    peaks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Known ESC fundamental frequencies
+    let esc_fundamentals = vec![
+        (8000, "Industrial 8kHz", "T-Motor/Hobbywing"),
+        (16000, "DJI/Industrial 16kHz", "DJI stock or industrial"),
+        (24000, "BLHeli_S 24kHz", "Common hobby ESC"),
+        (48000, "BLHeli 48kHz", "DShot-enabled ESC"),
+        (96000, "BLHeli_32 96kHz", "High-performance ESC"),
+    ];
+    
+    for (fundamental_hz, name, esc_type) in esc_fundamentals {
+        let mut harmonics_found = Vec::new();
+        let mut total_power = 0.0;
+        
+        // Check for harmonics (1x, 2x, 3x, 4x, 5x, 6x)
+        for n in 1..=6u64 {
+            let expected_hz = fundamental_hz * n;
+            let tolerance = 500; // 500 Hz tolerance
+            
+            for (freq, power) in &peaks {
+                if (*freq as i64 - expected_hz as i64).unsigned_abs() <= tolerance {
+                    harmonics_found.push(serde_json::json!({
+                        "harmonic": n,
+                        "frequency_hz": *freq,
+                        "frequency_khz": *freq as f64 / 1000.0,
+                        "power_db": *power
+                    }));
+                    total_power += power;
+                    break;
+                }
+            }
+        }
+        
+        // Need at least 3 harmonics to confirm detection
+        if harmonics_found.len() >= 3 {
+            let avg_power = total_power / harmonics_found.len() as f64;
+            let confidence = harmonics_found.len() as f64 / 6.0;
+            
+            // Estimate motor count and distance
+            let (estimated_motors, estimated_distance) = if avg_power > -20.0 {
+                (4, "< 5m")
+            } else if avg_power > -30.0 {
+                (4, "< 20m")
+            } else if avg_power > -40.0 {
+                (2, "< 50m")
+            } else {
+                (1, "< 100m")
+            };
+            
+            detections.push(serde_json::json!({
+                "fundamental_khz": fundamental_hz as f64 / 1000.0,
+                "esc_type": esc_type,
+                "signature_name": name,
+                "harmonics_detected": harmonics_found.len(),
+                "harmonics": harmonics_found,
+                "average_power_db": avg_power,
+                "confidence": confidence,
+                "estimated_motor_count": estimated_motors,
+                "estimated_distance": estimated_distance,
+                "threat_level": if avg_power > -30.0 { "high" } else if avg_power > -40.0 { "medium" } else { "low" }
+            }));
+        }
+    }
+    
+    detections
+}
+
+/// Full combined scan: RF + EMI
+async fn scan_drones_full() -> impl Responder {
+    let caps = SdrCapabilities::detect();
+    
+    let mut results = serde_json::json!({
+        "success": true,
+        "rf_scan": null,
+        "emi_scan": null,
+        "combined_detections": [],
+        "detection_summary": {
+            "rf_signals": 0,
+            "emi_signals": 0,
+            "confirmed_drones": 0
+        }
+    });
+    
+    // RF Scan (2.4 GHz + 5.8 GHz)
+    let mut rf_signals = Vec::new();
+    if caps.hackrf {
+        // 2.4 GHz
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "2400:2500", "-w", "500000", "-1"])
+            .output()
+            .await
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(sig) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
+                rf_signals.push(sig);
+            }
+        }
+        
+        // 5.8 GHz
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
+            .output()
+            .await
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(sig) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
+                rf_signals.push(sig);
+            }
+        }
+        
+        results["rf_scan"] = serde_json::json!({
+            "success": true,
+            "signals": rf_signals.clone(),
+            "bands_scanned": ["2.4GHz", "5.8GHz"]
+        });
+    } else {
+        results["rf_scan"] = serde_json::json!({
+            "success": false,
+            "error": "HackRF not available"
+        });
+    }
+    
+    // EMI Scan (motor harmonics)
+    let mut emi_signals = Vec::new();
+    if caps.rtl_sdr {
+        if let Ok(out) = tokio::process::Command::new("rtl_power")
+            .args(&["-f", "5k:500k:1k", "-i", "1", "-1", "-E", "2"])
+            .output()
+            .await
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            emi_signals = analyze_emi_spectrum(&stdout);
+        }
+        
+        results["emi_scan"] = serde_json::json!({
+            "success": true,
+            "signals": emi_signals.clone(),
+            "range_khz": [5, 500]
+        });
+    } else {
+        results["emi_scan"] = serde_json::json!({
+            "success": false,
+            "error": "RTL-SDR not available for EMI detection"
+        });
+    }
+    
+    // Combine detections
+    let mut combined = Vec::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    // If both RF and EMI detected - high confidence
+    if !rf_signals.is_empty() && !emi_signals.is_empty() {
+        combined.push(serde_json::json!({
+            "id": format!("drone_confirmed_{}", now),
+            "detection_method": "rf_and_emi",
+            "confidence": 0.95,
+            "rf_signals": rf_signals,
+            "emi_signatures": emi_signals,
+            "threat_level": "high",
+            "description": "CONFIRMED: Drone detected via both RF transmission and motor EMI",
+            "recommendations": [
+                "Drone is actively transmitting (control/video link active)",
+                "Motors are running - drone is airborne or about to take off",
+                "Consider visual confirmation"
+            ]
+        }));
+    } 
+    // RF only
+    else if !rf_signals.is_empty() {
+        combined.push(serde_json::json!({
+            "id": format!("drone_rf_{}", now),
+            "detection_method": "rf_only",
+            "confidence": 0.7,
+            "rf_signals": rf_signals,
+            "threat_level": "medium",
+            "description": "Possible drone detected via RF transmission",
+            "recommendations": [
+                "RF signal detected in drone frequency bands",
+                "Could be drone control/video link or other 2.4/5.8 GHz device",
+                "EMI detection would increase confidence"
+            ]
+        }));
+    }
+    // EMI only (drone may be in autonomous/GPS mode)
+    else if !emi_signals.is_empty() {
+        combined.push(serde_json::json!({
+            "id": format!("drone_emi_{}", now),
+            "detection_method": "emi_only",
+            "confidence": 0.6,
+            "emi_signatures": emi_signals,
+            "threat_level": "medium",
+            "description": "Possible drone detected via motor EMI signatures",
+            "recommendations": [
+                "Motor/ESC electromagnetic interference detected",
+                "Drone may be in autonomous/GPS mode with minimal RF",
+                "Or drone could be on ground with motors spinning",
+                "RF detection would increase confidence"
+            ]
+        }));
+    }
+    
+    results["combined_detections"] = serde_json::json!(combined);
+    results["detection_summary"] = serde_json::json!({
+        "rf_signals": rf_signals.len(),
+        "emi_signals": emi_signals.len(),
+        "confirmed_drones": if !rf_signals.is_empty() && !emi_signals.is_empty() { 1 } else { 0 },
+        "possible_drones": combined.len()
+    });
+    
+    // Update global state
+    {
+        let mut signals = DRONE_SIGNALS.lock().unwrap();
+        *signals = rf_signals;
+    }
+    {
+        let mut emi = EMI_SIGNALS.lock().unwrap();
+        *emi = emi_signals.iter().map(|s| s.clone()).collect();
+    }
+    {
+        let mut detections = COMBINED_DRONE_DETECTIONS.lock().unwrap();
+        *detections = combined;
+    }
+    
+    HttpResponse::Ok().json(results)
 }
 
 // ============================================
