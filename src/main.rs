@@ -13,6 +13,9 @@ mod settings;
 mod intelligence;
 mod threat_intel;
 mod tui;
+mod rayhunter;
+mod openclaw;
+mod meshtastic;
 
 #[cfg(feature = "simulation")]
 mod simulation;
@@ -45,6 +48,9 @@ pub enum ScanEvent {
         message: String,
         device_mac: Option<String>,
     },
+    RayHunterUpdate(rayhunter::RayHunterAnalysis),
+    RayHunterAlert(rayhunter::RayHunterAlert),
+    OpenClawReceived(openclaw::ReceivedThreat),
 }
 
 fn parse_args() -> (bool, bool) {
