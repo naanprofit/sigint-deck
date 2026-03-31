@@ -191,6 +191,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // LLM Analysis
             .route("/llm/analyze-device", web::post().to(llm_analyze_device))
             .route("/llm/system-prompt", web::get().to(get_llm_system_prompt))
+            // Contact Log (unified device history)
+            .route("/contacts", web::get().to(get_contacts))
+            .route("/contacts/export", web::get().to(export_contacts))
+            .route("/contacts/{mac}", web::get().to(get_contact_detail))
+            .route("/contacts/{mac}/timeline", web::get().to(get_contact_timeline))
+            .route("/database/stats", web::get().to(get_database_stats))
     );
 }
 
@@ -2569,7 +2575,7 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
     }
 }
 
-static CELL_TOWERS: Lazy<Mutex<Vec<CellTower>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static CELL_TOWERS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 async fn get_cell_towers() -> impl Responder {
     let towers = CELL_TOWERS.lock().unwrap();
@@ -2646,7 +2652,7 @@ fn parse_kal_line(line: &str, band: &str) -> Option<serde_json::Value> {
     }))
 }
 
-static DRONE_SIGNALS: Lazy<Mutex<Vec<DroneSignal>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static DRONE_SIGNALS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 async fn get_drone_signals() -> impl Responder {
     let signals = DRONE_SIGNALS.lock().unwrap();
@@ -2974,5 +2980,134 @@ async fn llm_analyze_device(
         "analysis": analysis,
         "llm_used": true,
         "model": llm_model
+    }))
+}
+
+// ===== Contact Log API Endpoints =====
+
+#[derive(Deserialize)]
+pub struct ContactsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    search: Option<String>,
+}
+
+/// Get all contacts (unified device history)
+pub async fn get_contacts(
+    db: web::Data<Arc<Database>>,
+    query: web::Query<ContactsQuery>,
+) -> impl Responder {
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let offset = query.offset.unwrap_or(0);
+    let search = query.search.as_deref();
+    
+    match db.get_all_contacts(limit, offset, search).await {
+        Ok(mut contacts) => {
+            // Add OUI lookup for contacts without vendor info
+            let oui = crate::storage::OuiLookup::embedded();
+            for contact in &mut contacts {
+                if contact.vendor.is_none() {
+                    contact.vendor = oui.lookup(&contact.mac_address).map(|s| s.to_string());
+                }
+            }
+            
+            let count = db.get_contact_count(search).await.unwrap_or(0);
+            HttpResponse::Ok().json(serde_json::json!({
+                "contacts": contacts,
+                "total": count,
+                "limit": limit,
+                "offset": offset
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to fetch contacts: {}", e)
+        }))
+    }
+}
+
+/// Get detailed contact info with sighting history
+pub async fn get_contact_detail(
+    db: web::Data<Arc<Database>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let mac = path.into_inner();
+    
+    match db.get_contact_detail(&mac).await {
+        Ok(Some(detail)) => HttpResponse::Ok().json(detail),
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Contact not found"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to fetch contact detail: {}", e)
+        }))
+    }
+}
+
+/// Get contact timeline (sightings over time for map/chart)
+pub async fn get_contact_timeline(
+    db: web::Data<Arc<Database>>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let mac = path.into_inner();
+    
+    match db.get_contact_detail(&mac).await {
+        Ok(Some(detail)) => {
+            // Extract timeline data for visualization
+            let timeline: Vec<serde_json::Value> = detail.sightings.iter().map(|s| {
+                serde_json::json!({
+                    "timestamp": s.timestamp.timestamp(),
+                    "rssi": s.rssi,
+                    "channel": s.channel,
+                    "latitude": s.latitude,
+                    "longitude": s.longitude
+                })
+            }).collect();
+            
+            HttpResponse::Ok().json(serde_json::json!({
+                "mac": mac,
+                "timeline": timeline,
+                "first_seen": detail.first_seen.timestamp(),
+                "last_seen": detail.last_seen.timestamp(),
+                "total_sightings": detail.times_seen
+            }))
+        }
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Contact not found"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to fetch timeline: {}", e)
+        }))
+    }
+}
+
+/// Export all contacts for backup
+pub async fn export_contacts(
+    db: web::Data<Arc<Database>>,
+) -> impl Responder {
+    match db.export_contacts().await {
+        Ok(data) => HttpResponse::Ok()
+            .insert_header(("Content-Type", "application/json"))
+            .insert_header(("Content-Disposition", "attachment; filename=\"sigint-contacts-export.json\""))
+            .json(data),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Export failed: {}", e)
+        }))
+    }
+}
+
+/// Get database statistics
+pub async fn get_database_stats(
+    db: web::Data<Arc<Database>>,
+) -> impl Responder {
+    // Get counts from various tables
+    let wifi_count = db.get_contact_count(None).await.unwrap_or(0);
+    let notes = db.get_recent_notes(1).await.unwrap_or_default();
+    let descriptions = db.get_all_device_descriptions().await.unwrap_or_default();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "total_contacts": wifi_count,
+        "ai_descriptions": descriptions.len(),
+        "has_notes": !notes.is_empty(),
+        "database_version": "1.0"
     }))
 }

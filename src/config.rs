@@ -229,7 +229,7 @@ pub struct LlmConfig {
     pub enabled: bool,
     /// Provider type: "openai", "llamacpp", "ollama", "lmstudio", "custom"
     pub provider: String,
-    /// API endpoint URL (e.g., "https://api.openai.com/v1" or "http://192.168.1.100:8080")
+    /// API endpoint URL (e.g., "https://api.openai.com/v1" or "http://localhost:8080")
     pub endpoint: String,
     /// API key (loaded from config, never hardcoded)
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -196,7 +196,7 @@ Publish alerts to an MQTT broker for home automation integration.
 ```toml
 [alerts.mqtt]
 enabled = true
-broker_host = "192.168.1.100"  # Or "localhost" for local broker
+broker_host = "mqtt.local"  # Or "localhost" for local broker
 broker_port = 1883
 client_id = "sigint-deck"
 topic_prefix = "sigint"

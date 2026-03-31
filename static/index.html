@@ -1188,6 +1188,474 @@
         .voice-status.unavailable {
             color: var(--accent-yellow);
         }
+        
+        /* Contact Log Styles */
+        .contacts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .contacts-header h3 {
+            margin: 0;
+        }
+        
+        .contacts-controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .contact-search-input {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            min-width: 200px;
+        }
+        
+        .export-btn {
+            background: var(--accent-blue) !important;
+        }
+        
+        .contacts-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+            padding: 0 1rem 1rem;
+        }
+        
+        .stat-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+        }
+        
+        .stat-box .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+        
+        .stat-box .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .contacts-table-container {
+            overflow-x: auto;
+            padding: 0 1rem;
+        }
+        
+        .contacts-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        
+        .contacts-table th,
+        .contacts-table td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .contacts-table th {
+            background: var(--bg-secondary);
+            cursor: pointer;
+            user-select: none;
+            position: sticky;
+            top: 0;
+        }
+        
+        .contacts-table th:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .contacts-table tr:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .contacts-table .type-wifi {
+            color: var(--accent-blue);
+        }
+        
+        .contacts-table .type-ble {
+            color: var(--accent-purple);
+        }
+        
+        .contacts-table .threat-critical {
+            color: var(--accent-red);
+            font-weight: bold;
+        }
+        
+        .contacts-table .threat-high {
+            color: #ff6b6b;
+        }
+        
+        .contacts-table .threat-medium {
+            color: var(--accent-yellow);
+        }
+        
+        .contacts-table .threat-low {
+            color: var(--accent-green);
+        }
+        
+        .contacts-table .action-btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+        
+        .contacts-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+        }
+        
+        /* Contact Modal */
+        .contact-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+        
+        .contact-modal.active {
+            display: flex;
+        }
+        
+        .contact-modal-content {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 1.5rem;
+        }
+        
+        .contact-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+        }
+        
+        .contact-modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        .contact-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .detail-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .detail-card h4 {
+            margin: 0 0 0.5rem 0;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        
+        .detail-card p {
+            margin: 0;
+            font-size: 1rem;
+            word-break: break-all;
+        }
+        
+        .sighting-timeline {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .sighting-timeline h4 {
+            margin: 0 0 1rem 0;
+        }
+        
+        .sighting-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .sighting-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+        
+        .sighting-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* SDR Panel Styles */
+        .sdr-panel {
+            padding: 1rem;
+        }
+        
+        .sdr-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .sdr-logo {
+            font-size: 2.5rem;
+        }
+        
+        .sdr-title h3 {
+            margin: 0;
+            font-size: 1.25rem;
+        }
+        
+        .sdr-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+        
+        .sdr-capabilities {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .sdr-capabilities h4 {
+            margin: 0 0 0.75rem 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        
+        .sdr-status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+        }
+        
+        .sdr-devices-list {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .sdr-device-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 0.25rem;
+        }
+        
+        .sdr-device-item .device-icon {
+            font-size: 1.25rem;
+        }
+        
+        .sdr-section {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .sdr-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        
+        .sdr-section-header h4 {
+            margin: 0;
+            font-size: 1rem;
+        }
+        
+        .sdr-info-text {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+        
+        .sdr-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .spectrum-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.75rem;
+        }
+        
+        .spectrum-select, .spectrum-input {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .spectrum-display {
+            min-height: 150px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: monospace;
+            overflow-x: auto;
+        }
+        
+        .spectrum-bar {
+            display: inline-block;
+            width: 4px;
+            margin-right: 1px;
+            background: var(--accent-blue);
+            vertical-align: bottom;
+        }
+        
+        .spectrum-bar.strong {
+            background: var(--accent-red);
+        }
+        
+        .spectrum-bar.medium {
+            background: var(--accent-yellow);
+        }
+        
+        .rf-device-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .rf-device-info {
+            flex: 1;
+        }
+        
+        .rf-device-model {
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+        
+        .rf-device-details {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .rf-device-meta {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .cell-tower-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid var(--accent-blue);
+        }
+        
+        .cell-tower-item.suspicious {
+            border-left-color: var(--accent-red);
+            background: rgba(248, 81, 73, 0.1);
+        }
+        
+        .cell-tower-info {
+            flex: 1;
+        }
+        
+        .cell-tower-band {
+            font-weight: 600;
+        }
+        
+        .cell-tower-freq {
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .cell-tower-power {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .drone-signal-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: rgba(210, 153, 34, 0.1);
+            border: 1px solid var(--accent-yellow);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .drone-signal-item.active {
+            background: rgba(248, 81, 73, 0.1);
+            border-color: var(--accent-red);
+            animation: pulse 2s infinite;
+        }
+        
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .sdr-available {
+            color: var(--accent-green);
+        }
+        
+        .sdr-unavailable {
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -1270,6 +1738,12 @@
         </button>
         <button class="tab-btn" data-tab="gps" tabindex="0">
             🛰️ GPS
+        </button>
+        <button class="tab-btn" data-tab="contacts" tabindex="0">
+            📋 Contacts <span class="badge-count" id="contactCount">--</span>
+        </button>
+        <button class="tab-btn" data-tab="sdr" tabindex="0">
+            📻 SDR <span class="badge-count" id="sdrBadge">--</span>
         </button>
         <button class="tab-btn" data-tab="settings" tabindex="0">
             ⚙️ Settings
@@ -1431,6 +1905,144 @@
         </div>
     </div>
     
+    <!-- SDR Tab (Software Defined Radio) -->
+    <div class="tab-content" id="tab-sdr">
+        <div class="sdr-panel">
+            <div class="sdr-header">
+                <div class="sdr-logo">📻</div>
+                <div class="sdr-title">
+                    <h3>Software Defined Radio</h3>
+                    <span class="sdr-subtitle">RTL-SDR, HackRF, LimeSDR Monitoring</span>
+                </div>
+                <button class="action-btn" onclick="refreshSdrStatus()">🔄 Refresh</button>
+            </div>
+            
+            <!-- SDR Capabilities -->
+            <div class="sdr-capabilities" id="sdrCapabilities">
+                <h4>Hardware Detection</h4>
+                <div class="sdr-status-grid" id="sdrStatusGrid">
+                    <div class="status-card">
+                        <span class="status-label">RTL-SDR</span>
+                        <span class="status-value" id="sdrRtlsdr">Checking...</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">RTL_433</span>
+                        <span class="status-value" id="sdrRtl433">Checking...</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">HackRF</span>
+                        <span class="status-value" id="sdrHackrf">Checking...</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">LimeSDR</span>
+                        <span class="status-value" id="sdrLimesdr">Checking...</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Kalibrate</span>
+                        <span class="status-value" id="sdrKalibrate">Checking...</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">RTL Power</span>
+                        <span class="status-value" id="sdrRtlpower">Checking...</span>
+                    </div>
+                </div>
+                <div id="sdrDevicesList" class="sdr-devices-list" style="margin-top: 0.75rem;">
+                    <!-- Connected devices will be listed here -->
+                </div>
+            </div>
+            
+            <!-- RF Device Monitor (rtl_433) -->
+            <div class="sdr-section" id="sdrRfMonitorSection">
+                <div class="sdr-section-header">
+                    <h4>📡 RF Device Monitor (433/315 MHz)</h4>
+                    <div class="sdr-controls">
+                        <button class="action-btn" id="rtl433StartBtn" onclick="toggleRtl433()">▶️ Start</button>
+                    </div>
+                </div>
+                <div class="sdr-info-text">
+                    Monitors ISM bands for wireless sensors, weather stations, remotes, tire pressure sensors, doorbells, etc.
+                </div>
+                <div id="rtl433Devices" class="device-list">
+                    <div class="empty-state">Click Start to begin RF monitoring</div>
+                </div>
+            </div>
+            
+            <!-- Spectrum Analyzer -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📊 Spectrum Analyzer</h4>
+                </div>
+                <div class="spectrum-controls">
+                    <select id="spectrumBand" class="spectrum-select">
+                        <option value="">Select Band...</option>
+                        <option value="ism433">ISM 433 MHz</option>
+                        <option value="ism915">ISM 915 MHz</option>
+                        <option value="wifi24">WiFi 2.4 GHz</option>
+                        <option value="drones">Drone Bands (2.4/5.8 GHz)</option>
+                        <option value="gsm850">GSM 850</option>
+                        <option value="gsm1900">GSM 1900 / PCS</option>
+                        <option value="lte700">LTE 700 MHz</option>
+                    </select>
+                    <span style="margin: 0 0.5rem;">or</span>
+                    <input type="number" id="spectrumStartMhz" placeholder="Start MHz" style="width: 100px;" class="spectrum-input">
+                    <span>-</span>
+                    <input type="number" id="spectrumEndMhz" placeholder="End MHz" style="width: 100px;" class="spectrum-input">
+                    <button class="action-btn" onclick="scanSpectrum()">🔍 Scan</button>
+                </div>
+                <div id="spectrumDisplay" class="spectrum-display">
+                    <div class="empty-state">Select a band and click Scan to analyze spectrum</div>
+                </div>
+            </div>
+            
+            <!-- Cellular Tower Scanner -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📶 Cell Tower Scanner</h4>
+                    <button class="action-btn" onclick="scanCellTowers()">🔍 Scan Towers</button>
+                </div>
+                <div class="sdr-info-text">
+                    Scans GSM/LTE bands to identify nearby cell towers. Useful for detecting fake base stations.
+                </div>
+                <div id="cellTowerList" class="device-list">
+                    <div class="empty-state">Click Scan to detect nearby cell towers</div>
+                </div>
+            </div>
+            
+            <!-- Drone Detection -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🚁 Drone Detection</h4>
+                    <button class="action-btn" onclick="scanDrones()">🔍 Scan</button>
+                </div>
+                <div class="sdr-info-text">
+                    Monitors 2.4 GHz and 5.8 GHz bands for drone control signals and video downlinks.
+                </div>
+                <div id="droneSignalList" class="device-list">
+                    <div class="empty-state">Click Scan to detect drone signals</div>
+                </div>
+            </div>
+            
+            <!-- SDR Audio Streaming (future) -->
+            <div class="sdr-section sdr-audio-section" style="display: none;">
+                <div class="sdr-section-header">
+                    <h4>🔊 Audio Stream</h4>
+                </div>
+                <div class="audio-controls">
+                    <input type="number" id="audioFreqMhz" placeholder="Frequency MHz" style="width: 120px;">
+                    <select id="audioMode">
+                        <option value="fm">FM</option>
+                        <option value="am">AM</option>
+                        <option value="usb">USB</option>
+                        <option value="lsb">LSB</option>
+                    </select>
+                    <button class="action-btn" onclick="startAudioStream()">▶️ Listen</button>
+                    <button class="action-btn" onclick="stopAudioStream()">⏹️ Stop</button>
+                </div>
+                <div id="audioPlayer" style="margin-top: 0.5rem;"></div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Settings Tab -->
     <div class="tab-content" id="tab-settings">
         <div class="settings-section">
@@ -1477,6 +2089,63 @@
             <h3>Configuration</h3>
             <button id="saveConfig" class="action-btn save-btn">Save Settings</button>
             <span id="saveStatus" style="margin-left: 1rem;"></span>
+        </div>
+    </div>
+
+    <!-- Contact Log Tab (Database Browser) -->
+    <div class="tab-content" id="tab-contacts">
+        <div class="contacts-header">
+            <h3>📋 Contact Log</h3>
+            <div class="contacts-controls">
+                <input type="text" id="contactSearch" placeholder="Search MAC, vendor, name..." class="contact-search-input">
+                <button class="action-btn" onclick="searchContacts()">🔍 Search</button>
+                <button class="action-btn export-btn" onclick="exportContacts()">📥 Export JSON</button>
+            </div>
+        </div>
+        
+        <div class="contacts-stats" id="contactsStats">
+            <div class="stat-box"><span class="stat-value" id="totalContacts">--</span><span class="stat-label">Total Contacts</span></div>
+            <div class="stat-box"><span class="stat-value" id="wifiContacts">--</span><span class="stat-label">WiFi Devices</span></div>
+            <div class="stat-box"><span class="stat-value" id="bleContacts">--</span><span class="stat-label">BLE Devices</span></div>
+            <div class="stat-box"><span class="stat-value" id="aiDescriptions">--</span><span class="stat-label">AI Analyzed</span></div>
+        </div>
+        
+        <div class="contacts-table-container">
+            <table class="contacts-table" id="contactsTable">
+                <thead>
+                    <tr>
+                        <th onclick="sortContacts('type')">Type</th>
+                        <th onclick="sortContacts('mac')">MAC Address</th>
+                        <th onclick="sortContacts('vendor')">Vendor</th>
+                        <th onclick="sortContacts('name')">Name/SSID</th>
+                        <th onclick="sortContacts('sightings')">Sightings</th>
+                        <th onclick="sortContacts('first_seen')">First Seen</th>
+                        <th onclick="sortContacts('last_seen')">Last Seen</th>
+                        <th onclick="sortContacts('threat')">Threat</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="contactsBody">
+                    <tr><td colspan="9" class="empty-state">Loading contacts...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="contacts-pagination">
+            <button class="action-btn" id="prevPage" onclick="changePage(-1)" disabled>◀ Previous</button>
+            <span id="pageInfo">Page 1</span>
+            <button class="action-btn" id="nextPage" onclick="changePage(1)">Next ▶</button>
+        </div>
+    </div>
+
+    <!-- Contact Detail Modal -->
+    <div class="contact-modal" id="contactModal">
+        <div class="contact-modal-content">
+            <div class="contact-modal-header">
+                <h2>📱 Contact Details</h2>
+                <button class="contact-modal-close" onclick="closeContactModal()">✕</button>
+            </div>
+            <div id="contactDetailContent">Loading...</div>
         </div>
     </div>
 
@@ -2254,6 +2923,297 @@
             }
         }
 
+        // ============================================
+        // SDR (Software Defined Radio) Functions
+        // ============================================
+        
+        let sdrState = {
+            rtl433Running: false,
+            rtl433Devices: [],
+            capabilities: null
+        };
+        
+        async function fetchSdrStatus() {
+            try {
+                const response = await fetch('/api/sdr/status');
+                const data = await response.json();
+                sdrState.capabilities = data;
+                renderSdrStatus(data);
+            } catch (e) {
+                console.error('SDR status fetch failed:', e);
+                document.getElementById('sdrBadge').textContent = '--';
+            }
+        }
+        
+        function renderSdrStatus(data) {
+            // Update capability indicators
+            const caps = data.capabilities || {};
+            
+            document.getElementById('sdrRtlsdr').textContent = caps.rtl_sdr ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrRtlsdr').className = caps.rtl_sdr ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            document.getElementById('sdrRtl433').textContent = caps.rtl_433 ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrRtl433').className = caps.rtl_433 ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            document.getElementById('sdrHackrf').textContent = caps.hackrf ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrHackrf').className = caps.hackrf ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            document.getElementById('sdrLimesdr').textContent = caps.limesdr ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrLimesdr').className = caps.limesdr ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            document.getElementById('sdrKalibrate').textContent = caps.kalibrate ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrKalibrate').className = caps.kalibrate ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            document.getElementById('sdrRtlpower').textContent = caps.rtl_power ? '✓ Available' : '✗ Not found';
+            document.getElementById('sdrRtlpower').className = caps.rtl_power ? 'status-value sdr-available' : 'status-value sdr-unavailable';
+            
+            // Update badge
+            const availableCount = Object.values(caps).filter(v => v === true).length;
+            document.getElementById('sdrBadge').textContent = data.available ? `${availableCount}` : '--';
+            
+            // Render connected devices
+            const devicesList = document.getElementById('sdrDevicesList');
+            if (data.devices && data.devices.length > 0) {
+                devicesList.innerHTML = data.devices.map(d => `
+                    <div class="sdr-device-item">
+                        <span class="device-icon">📻</span>
+                        <span>${d}</span>
+                    </div>
+                `).join('');
+            } else {
+                devicesList.innerHTML = '<div class="sdr-info-text">No SDR devices connected</div>';
+            }
+        }
+        
+        function refreshSdrStatus() {
+            fetchSdrStatus();
+        }
+        
+        async function toggleRtl433() {
+            const btn = document.getElementById('rtl433StartBtn');
+            
+            if (sdrState.rtl433Running) {
+                // Stop
+                try {
+                    await fetch('/api/sdr/rtl433/stop', { method: 'POST' });
+                    sdrState.rtl433Running = false;
+                    btn.textContent = '▶️ Start';
+                    document.getElementById('rtl433Devices').innerHTML = '<div class="empty-state">Monitoring stopped</div>';
+                } catch (e) {
+                    console.error('Failed to stop rtl_433:', e);
+                }
+            } else {
+                // Start
+                try {
+                    const response = await fetch('/api/sdr/rtl433/start', { method: 'POST' });
+                    const data = await response.json();
+                    if (data.error) {
+                        document.getElementById('rtl433Devices').innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
+                        return;
+                    }
+                    sdrState.rtl433Running = true;
+                    btn.textContent = '⏹️ Stop';
+                    document.getElementById('rtl433Devices').innerHTML = '<div class="empty-state">Monitoring 433/315 MHz... Waiting for devices</div>';
+                    // Start polling for devices
+                    pollRtl433Devices();
+                } catch (e) {
+                    console.error('Failed to start rtl_433:', e);
+                }
+            }
+        }
+        
+        async function pollRtl433Devices() {
+            if (!sdrState.rtl433Running) return;
+            
+            try {
+                const response = await fetch('/api/sdr/rtl433/devices');
+                const devices = await response.json();
+                renderRtl433Devices(devices);
+            } catch (e) {
+                console.error('Failed to fetch rtl_433 devices:', e);
+            }
+            
+            if (sdrState.rtl433Running) {
+                setTimeout(pollRtl433Devices, 2000);
+            }
+        }
+        
+        function renderRtl433Devices(devices) {
+            const container = document.getElementById('rtl433Devices');
+            
+            if (!devices || devices.length === 0) {
+                container.innerHTML = '<div class="empty-state">Monitoring... No RF devices detected yet</div>';
+                return;
+            }
+            
+            container.innerHTML = devices.map(d => `
+                <div class="rf-device-item">
+                    <div class="rf-device-info">
+                        <div class="rf-device-model">${d.model || 'Unknown Device'}</div>
+                        <div class="rf-device-details">
+                            ID: ${d.id || '--'} • Freq: ${d.frequency || '--'} MHz
+                            ${d.battery ? ' • Battery: ' + d.battery : ''}
+                            ${d.temperature ? ' • Temp: ' + d.temperature + '°' : ''}
+                        </div>
+                    </div>
+                    <div class="rf-device-meta">
+                        <span class="badge">${d.count || 1}x</span>
+                        <span class="rssi ${getRssiClass(d.rssi || -70)}">${d.rssi || '--'} dB</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function scanSpectrum() {
+            const band = document.getElementById('spectrumBand').value;
+            const startMhz = document.getElementById('spectrumStartMhz').value;
+            const endMhz = document.getElementById('spectrumEndMhz').value;
+            
+            const display = document.getElementById('spectrumDisplay');
+            display.innerHTML = '<div class="empty-state">Scanning spectrum...</div>';
+            
+            try {
+                const body = {};
+                if (band) body.band = band;
+                if (startMhz) body.start_mhz = parseInt(startMhz);
+                if (endMhz) body.end_mhz = parseInt(endMhz);
+                
+                const response = await fetch('/api/sdr/spectrum/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    display.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
+                    return;
+                }
+                
+                renderSpectrum(data);
+            } catch (e) {
+                display.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        function renderSpectrum(data) {
+            const display = document.getElementById('spectrumDisplay');
+            
+            if (!data.data || data.data.length === 0) {
+                display.innerHTML = '<div class="empty-state">No spectrum data received</div>';
+                return;
+            }
+            
+            // Simple bar visualization
+            let html = `<div style="margin-bottom: 0.5rem;">Range: ${data.start_mhz} - ${data.end_mhz} MHz</div>`;
+            html += '<div class="spectrum-bars">';
+            
+            for (const segment of data.data) {
+                if (segment.powers) {
+                    for (const power of segment.powers) {
+                        const normalizedPower = Math.max(0, Math.min(100, (power + 100) * 1.5));
+                        const barClass = power > -30 ? 'strong' : power > -60 ? 'medium' : '';
+                        html += `<span class="spectrum-bar ${barClass}" style="height: ${normalizedPower}px;" title="${power.toFixed(1)} dB"></span>`;
+                    }
+                }
+            }
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        async function scanCellTowers() {
+            const container = document.getElementById('cellTowerList');
+            container.innerHTML = '<div class="empty-state">Scanning cellular bands... This may take a minute.</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/cellular/scan', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
+                    return;
+                }
+                
+                renderCellTowers(data.towers || []);
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        function renderCellTowers(towers) {
+            const container = document.getElementById('cellTowerList');
+            
+            if (!towers || towers.length === 0) {
+                container.innerHTML = '<div class="empty-state">No cell towers detected</div>';
+                return;
+            }
+            
+            container.innerHTML = towers.map(t => `
+                <div class="cell-tower-item ${t.suspicious ? 'suspicious' : ''}">
+                    <div class="cell-tower-info">
+                        <div class="cell-tower-band">${t.band || 'Unknown Band'}</div>
+                        <div class="cell-tower-freq">${t.frequency || '--'} MHz (ARFCN: ${t.arfcn || '--'})</div>
+                        <div class="cell-tower-power">Power: ${t.power || '--'} dB</div>
+                    </div>
+                    ${t.suspicious ? '<span class="badge tracker">SUSPICIOUS</span>' : ''}
+                </div>
+            `).join('');
+        }
+        
+        async function scanDrones() {
+            const container = document.getElementById('droneSignalList');
+            container.innerHTML = '<div class="empty-state">Scanning drone frequencies...</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/drone/scan', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
+                    return;
+                }
+                
+                renderDroneSignals(data.signals || []);
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        function renderDroneSignals(signals) {
+            const container = document.getElementById('droneSignalList');
+            
+            if (!signals || signals.length === 0) {
+                container.innerHTML = '<div class="empty-state">No drone signals detected</div>';
+                return;
+            }
+            
+            container.innerHTML = signals.map(s => `
+                <div class="drone-signal-item ${s.active ? 'active' : ''}">
+                    <div class="rf-device-info">
+                        <div class="rf-device-model">🚁 ${s.type || 'Unknown Drone Signal'}</div>
+                        <div class="rf-device-details">
+                            Freq: ${s.frequency || '--'} MHz • Band: ${s.band || '--'}
+                            ${s.protocol ? ' • Protocol: ' + s.protocol : ''}
+                        </div>
+                    </div>
+                    <div class="rf-device-meta">
+                        <span class="rssi ${getRssiClass(s.rssi || -70)}">${s.rssi || '--'} dB</span>
+                        ${s.active ? '<span class="badge tracker">ACTIVE</span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Audio streaming (placeholder for future implementation)
+        function startAudioStream() {
+            alert('Audio streaming requires WebSocket support - coming soon!');
+        }
+        
+        function stopAudioStream() {
+            // Placeholder
+        }
+
         // Event listeners
         document.addEventListener('DOMContentLoaded', () => {
             // Tab navigation
@@ -2333,6 +3293,10 @@
             // RayHunter IMSI catcher polling
             fetchRayhunterStatus();
             setInterval(fetchRayhunterStatus, 5000);
+            
+            // SDR status polling
+            fetchSdrStatus();
+            setInterval(fetchSdrStatus, 10000);
             
             // Cleanup old devices
             setInterval(() => {
@@ -2802,9 +3766,319 @@
         
         // Close modal on escape key
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && document.getElementById('noteModal').classList.contains('active')) {
-                closeNoteModal();
+            if (e.key === 'Escape') {
+                if (document.getElementById('noteModal').classList.contains('active')) {
+                    closeNoteModal();
+                }
+                if (document.getElementById('contactModal').classList.contains('active')) {
+                    closeContactModal();
+                }
             }
+        });
+        
+        // ===== Contact Log Functions =====
+        
+        const contactState = {
+            contacts: [],
+            currentPage: 1,
+            pageSize: 50,
+            totalContacts: 0,
+            searchQuery: '',
+            sortField: 'last_seen',
+            sortDesc: true
+        };
+        
+        async function loadContacts() {
+            const offset = (contactState.currentPage - 1) * contactState.pageSize;
+            const search = contactState.searchQuery ? `&search=${encodeURIComponent(contactState.searchQuery)}` : '';
+            
+            try {
+                const response = await fetch(`/api/contacts?limit=${contactState.pageSize}&offset=${offset}${search}`);
+                const data = await response.json();
+                
+                contactState.contacts = data.contacts || [];
+                contactState.totalContacts = data.total || 0;
+                
+                renderContacts();
+                updateContactStats();
+                updatePagination();
+            } catch (e) {
+                console.error('Failed to load contacts:', e);
+                document.getElementById('contactsBody').innerHTML = 
+                    '<tr><td colspan="9" class="empty-state">Failed to load contacts</td></tr>';
+            }
+        }
+        
+        function renderContacts() {
+            const tbody = document.getElementById('contactsBody');
+            
+            if (contactState.contacts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No contacts found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = contactState.contacts.map(c => {
+                const typeClass = c.device_type === 'wifi' ? 'type-wifi' : 'type-ble';
+                const threatClass = c.threat_level ? `threat-${c.threat_level}` : '';
+                const firstSeen = new Date(c.first_seen).toLocaleString();
+                const lastSeen = new Date(c.last_seen).toLocaleString();
+                const name = c.device_name || c.ssid || '-';
+                
+                return `
+                    <tr>
+                        <td class="${typeClass}">${c.device_type.toUpperCase()}</td>
+                        <td><code>${c.mac_address}</code></td>
+                        <td>${c.vendor || '-'}</td>
+                        <td>${name}</td>
+                        <td>${c.sighting_count}</td>
+                        <td>${firstSeen}</td>
+                        <td>${lastSeen}</td>
+                        <td class="${threatClass}">${c.threat_level || '-'}</td>
+                        <td>
+                            <button class="action-btn" onclick="viewContact('${c.mac_address}')">View</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        async function updateContactStats() {
+            try {
+                const response = await fetch('/api/database/stats');
+                const stats = await response.json();
+                
+                document.getElementById('totalContacts').textContent = stats.total_contacts || contactState.totalContacts;
+                document.getElementById('contactCount').textContent = stats.total_contacts || contactState.totalContacts;
+                
+                // Count by type from current data
+                const wifi = contactState.contacts.filter(c => c.device_type === 'wifi').length;
+                const ble = contactState.contacts.filter(c => c.device_type === 'ble').length;
+                document.getElementById('wifiContacts').textContent = wifi;
+                document.getElementById('bleContacts').textContent = ble;
+                document.getElementById('aiDescriptions').textContent = stats.ai_descriptions || 0;
+            } catch (e) {
+                console.error('Failed to update stats:', e);
+            }
+        }
+        
+        function updatePagination() {
+            const totalPages = Math.ceil(contactState.totalContacts / contactState.pageSize);
+            document.getElementById('pageInfo').textContent = `Page ${contactState.currentPage} of ${totalPages || 1}`;
+            document.getElementById('prevPage').disabled = contactState.currentPage <= 1;
+            document.getElementById('nextPage').disabled = contactState.currentPage >= totalPages;
+        }
+        
+        function changePage(delta) {
+            contactState.currentPage += delta;
+            if (contactState.currentPage < 1) contactState.currentPage = 1;
+            loadContacts();
+        }
+        
+        function searchContacts() {
+            contactState.searchQuery = document.getElementById('contactSearch').value.trim();
+            contactState.currentPage = 1;
+            loadContacts();
+        }
+        
+        function sortContacts(field) {
+            if (contactState.sortField === field) {
+                contactState.sortDesc = !contactState.sortDesc;
+            } else {
+                contactState.sortField = field;
+                contactState.sortDesc = true;
+            }
+            
+            // Client-side sort
+            contactState.contacts.sort((a, b) => {
+                let aVal = a[field] || '';
+                let bVal = b[field] || '';
+                
+                if (field === 'sightings' || field === 'sighting_count') {
+                    aVal = a.sighting_count || 0;
+                    bVal = b.sighting_count || 0;
+                }
+                
+                if (typeof aVal === 'string') {
+                    return contactState.sortDesc ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
+                }
+                return contactState.sortDesc ? bVal - aVal : aVal - bVal;
+            });
+            
+            renderContacts();
+        }
+        
+        async function viewContact(mac) {
+            document.getElementById('contactModal').classList.add('active');
+            document.getElementById('contactDetailContent').innerHTML = '<div class="empty-state">Loading...</div>';
+            
+            try {
+                const response = await fetch(`/api/contacts/${encodeURIComponent(mac)}`);
+                const detail = await response.json();
+                
+                if (detail.error) {
+                    document.getElementById('contactDetailContent').innerHTML = 
+                        `<div class="empty-state">${detail.error}</div>`;
+                    return;
+                }
+                
+                const firstSeen = new Date(detail.first_seen).toLocaleString();
+                const lastSeen = new Date(detail.last_seen).toLocaleString();
+                
+                let html = `
+                    <div class="contact-detail-grid">
+                        <div class="detail-card">
+                            <h4>MAC Address</h4>
+                            <p><code>${detail.mac_address}</code></p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Type</h4>
+                            <p>${detail.device_type.toUpperCase()}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Vendor</h4>
+                            <p>${detail.vendor || 'Unknown'}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Name</h4>
+                            <p>${detail.device_name || '-'}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>First Seen</h4>
+                            <p>${firstSeen}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Last Seen</h4>
+                            <p>${lastSeen}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Times Seen</h4>
+                            <p>${detail.times_seen}</p>
+                        </div>
+                        <div class="detail-card">
+                            <h4>Baseline</h4>
+                            <p>${detail.is_baseline ? '✅ Yes' : '❌ No'}</p>
+                        </div>
+                    </div>
+                `;
+                
+                if (detail.ai_description) {
+                    html += `
+                        <div class="detail-card" style="margin-top: 1rem;">
+                            <h4>AI Analysis</h4>
+                            <p>${detail.ai_description}</p>
+                            ${detail.threat_level ? `<p><strong>Threat Level:</strong> <span class="threat-${detail.threat_level}">${detail.threat_level.toUpperCase()}</span></p>` : ''}
+                        </div>
+                    `;
+                }
+                
+                if (detail.sightings && detail.sightings.length > 0) {
+                    html += `
+                        <div class="sighting-timeline">
+                            <h4>📍 Sighting History (Recent ${detail.sightings.length})</h4>
+                            <div class="sighting-list">
+                                ${detail.sightings.map(s => {
+                                    const time = new Date(s.timestamp).toLocaleString();
+                                    const loc = (s.latitude && s.longitude) ? 
+                                        `📍 ${s.latitude.toFixed(5)}, ${s.longitude.toFixed(5)}` : '';
+                                    return `
+                                        <div class="sighting-item">
+                                            <span>${time}</span>
+                                            <span>RSSI: ${s.rssi} dBm</span>
+                                            ${s.channel ? `<span>Ch: ${s.channel}</span>` : ''}
+                                            <span>${loc}</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (detail.user_notes && detail.user_notes.length > 0) {
+                    html += `
+                        <div class="sighting-timeline">
+                            <h4>📝 User Notes</h4>
+                            <div class="sighting-list">
+                                ${detail.user_notes.map(n => `
+                                    <div class="sighting-item" style="flex-direction: column;">
+                                        <p>${n.note_text}</p>
+                                        <small>${n.note_source} • ${n.created_at}</small>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                html += `
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                        <button class="action-btn" onclick="openNoteModal('${detail.mac_address}', '${detail.device_type}')">📝 Add Note</button>
+                        <button class="action-btn" onclick="analyzeContact('${detail.mac_address}')">🤖 AI Analyze</button>
+                    </div>
+                `;
+                
+                document.getElementById('contactDetailContent').innerHTML = html;
+            } catch (e) {
+                document.getElementById('contactDetailContent').innerHTML = 
+                    `<div class="empty-state">Error: ${e.message}</div>`;
+            }
+        }
+        
+        function closeContactModal() {
+            document.getElementById('contactModal').classList.remove('active');
+        }
+        
+        async function analyzeContact(mac) {
+            try {
+                const response = await fetch('/api/llm/analyze-device', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mac })
+                });
+                const result = await response.json();
+                
+                if (result.analysis) {
+                    alert(`AI Analysis:\n\n${result.analysis}`);
+                } else if (result.assessment) {
+                    alert(`Assessment:\n\n${result.assessment}`);
+                } else if (result.error) {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (e) {
+                alert('Analysis failed: ' + e.message);
+            }
+        }
+        
+        async function exportContacts() {
+            try {
+                const response = await fetch('/api/contacts/export');
+                const blob = await response.blob();
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sigint-contacts-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Export failed: ' + e.message);
+            }
+        }
+        
+        // Load contacts when tab is activated
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.tab === 'contacts') {
+                    loadContacts();
+                }
+            });
+        });
+        
+        // Search on Enter
+        document.getElementById('contactSearch').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchContacts();
         });
     </script>
 </body>

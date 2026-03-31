@@ -743,7 +743,7 @@ Add to `~/sigint-pi/config.toml`:
 [llm]
 enabled = true
 provider = "llamacpp"
-endpoint = "http://192.168.50.191:8080/v1"  # Your LLM server
+endpoint = "http://localhost:8080/v1"  # Your LLM server
 model = "2slot-MM-local-gguf"               # Your model name
 max_tokens = 200
 timeout_secs = 60
