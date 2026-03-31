@@ -188,6 +188,26 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/sdr/cellular/scan", web::post().to(scan_cell_towers))
             .route("/sdr/drone/signals", web::get().to(get_drone_signals))
             .route("/sdr/drone/scan", web::post().to(scan_drones))
+            .route("/sdr/drone/start", web::post().to(start_drone_monitor))
+            .route("/sdr/drone/stop", web::post().to(stop_drone_monitor))
+            // SDR Presets
+            .route("/sdr/presets", web::get().to(get_preset_lists))
+            .route("/sdr/presets/{list_id}", web::get().to(get_preset_list))
+            .route("/sdr/presets", web::post().to(create_preset_list))
+            .route("/sdr/presets/{list_id}", web::delete().to(delete_preset_list))
+            .route("/sdr/presets/{list_id}/add", web::post().to(add_preset))
+            .route("/sdr/presets/{list_id}/{preset_id}", web::delete().to(remove_preset))
+            .route("/sdr/presets/search", web::get().to(search_presets))
+            .route("/sdr/presets/favorites", web::get().to(get_favorite_presets))
+            // SDR Radio Reception
+            .route("/sdr/radio/tune", web::post().to(tune_radio))
+            .route("/sdr/radio/stop", web::post().to(stop_radio))
+            .route("/sdr/radio/status", web::get().to(get_radio_status))
+            // TSCM Bug Detection
+            .route("/sdr/tscm/sweep", web::post().to(start_tscm_sweep))
+            .route("/sdr/tscm/status", web::get().to(get_tscm_status))
+            .route("/sdr/tscm/stop", web::post().to(stop_tscm_sweep))
+            .route("/sdr/tscm/threats", web::get().to(get_tscm_threats))
             // LLM Analysis
             .route("/llm/analyze-device", web::post().to(llm_analyze_device))
             .route("/llm/system-prompt", web::get().to(get_llm_system_prompt))
@@ -2495,13 +2515,21 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
     }
     
     let (start_mhz, end_mhz) = if let Some(band_name) = &body.band {
-        // Look up predefined band
+        // Look up predefined band - normalize names by removing spaces and special chars
         let bands = FrequencyBand::common_bands();
-        if let Some(band) = bands.iter().find(|b| b.name.to_lowercase().contains(&band_name.to_lowercase())) {
+        let normalize = |s: &str| s.to_lowercase().replace(" ", "").replace("-", "").replace(".", "");
+        let search_normalized = normalize(band_name);
+        
+        if let Some(band) = bands.iter().find(|b| {
+            let name_normalized = normalize(&b.name);
+            // Match if either contains the other (handles "ism433" matching "ISM 433")
+            name_normalized.contains(&search_normalized) || search_normalized.contains(&name_normalized)
+        }) {
             ((band.start_hz / 1_000_000) as u32, (band.end_hz / 1_000_000) as u32)
         } else {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": "Unknown band",
+                "hint": format!("Band '{}' not found. Available bands: ISM 315, ISM 433, ISM 868, ISM 915, WiFi 2.4GHz, Cellular 700/850/1900, GPS L1, Drone 5.8GHz", band_name),
                 "available_bands": bands.iter().map(|b| &b.name).collect::<Vec<_>>()
             }));
         }
@@ -3109,5 +3137,597 @@ pub async fn get_database_stats(
         "ai_descriptions": descriptions.len(),
         "has_notes": !notes.is_empty(),
         "database_version": "1.0"
+    }))
+}
+
+// ============================================
+// Continuous Drone Monitoring
+// ============================================
+
+static DRONE_MONITOR_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+
+async fn start_drone_monitor() -> impl Responder {
+    let caps = SdrCapabilities::detect();
+    
+    if !caps.hackrf {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "HackRF required for continuous drone monitoring",
+            "hint": "Drone detection requires wideband scanning (2.4GHz, 5.8GHz)"
+        }));
+    }
+    
+    {
+        let running = DRONE_MONITOR_RUNNING.lock().unwrap();
+        if *running {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "status": "already_running"
+            }));
+        }
+    }
+    
+    {
+        let mut running = DRONE_MONITOR_RUNNING.lock().unwrap();
+        *running = true;
+    }
+    
+    // Spawn continuous monitoring task
+    tokio::spawn(async move {
+        while {
+            let running = DRONE_MONITOR_RUNNING.lock().unwrap();
+            *running
+        } {
+            // Scan 2.4 GHz band
+            if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+                .args(&["-f", "2400:2500", "-w", "500000", "-1"])
+                .output()
+                .await
+            {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if let Some(signal) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
+                    let mut signals = DRONE_SIGNALS.lock().unwrap();
+                    // Add or update signal
+                    if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!("2.4GHz"))) {
+                        *existing = signal;
+                    } else {
+                        signals.push(signal);
+                    }
+                }
+            }
+            
+            // Scan 5.8 GHz band
+            if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+                .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
+                .output()
+                .await
+            {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if let Some(signal) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
+                    let mut signals = DRONE_SIGNALS.lock().unwrap();
+                    if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!("5.8GHz"))) {
+                        *existing = signal;
+                    } else {
+                        signals.push(signal);
+                    }
+                }
+            }
+            
+            // Sleep between scans
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+    });
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "started",
+        "bands": ["2.4GHz", "5.8GHz"],
+        "scan_interval_secs": 5
+    }))
+}
+
+async fn stop_drone_monitor() -> impl Responder {
+    let mut running = DRONE_MONITOR_RUNNING.lock().unwrap();
+    *running = false;
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "stopped"
+    }))
+}
+
+// ============================================
+// SDR Presets API
+// ============================================
+
+use crate::sdr::presets::{PresetManager, FrequencyPreset, PresetList, Modulation, PresetCategory};
+
+static PRESET_MANAGER: Lazy<Mutex<PresetManager>> = Lazy::new(|| {
+    let presets_dir = std::env::var("SIGINT_PRESETS_DIR")
+        .unwrap_or_else(|_| "/var/lib/sigint-pi/presets".to_string());
+    Mutex::new(PresetManager::new(&presets_dir))
+});
+
+async fn get_preset_lists() -> impl Responder {
+    let manager = PRESET_MANAGER.lock().unwrap();
+    let lists: Vec<_> = manager.get_all_lists().iter().map(|l| {
+        serde_json::json!({
+            "id": l.id,
+            "name": l.name,
+            "description": l.description,
+            "preset_count": l.presets.len(),
+            "is_builtin": l.is_builtin
+        })
+    }).collect();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "lists": lists
+    }))
+}
+
+async fn get_preset_list(path: web::Path<String>) -> impl Responder {
+    let list_id = path.into_inner();
+    let manager = PRESET_MANAGER.lock().unwrap();
+    
+    match manager.get_list(&list_id) {
+        Some(list) => HttpResponse::Ok().json(list),
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Preset list not found"
+        }))
+    }
+}
+
+#[derive(Deserialize)]
+struct CreatePresetListRequest {
+    name: String,
+    description: Option<String>,
+}
+
+async fn create_preset_list(body: web::Json<CreatePresetListRequest>) -> impl Responder {
+    let mut manager = PRESET_MANAGER.lock().unwrap();
+    let list = manager.create_list(&body.name, body.description.clone());
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "list": list
+    }))
+}
+
+async fn delete_preset_list(path: web::Path<String>) -> impl Responder {
+    let list_id = path.into_inner();
+    let mut manager = PRESET_MANAGER.lock().unwrap();
+    
+    match manager.delete_list(&list_id) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({ "error": e }))
+    }
+}
+
+#[derive(Deserialize)]
+struct AddPresetRequest {
+    name: String,
+    frequency_hz: u64,
+    modulation: String,
+    bandwidth_hz: Option<u32>,
+    category: Option<String>,
+    description: Option<String>,
+    tags: Option<Vec<String>>,
+    squelch: Option<i32>,
+    gain: Option<i32>,
+    notes: Option<String>,
+}
+
+async fn add_preset(
+    path: web::Path<String>,
+    body: web::Json<AddPresetRequest>,
+) -> impl Responder {
+    let list_id = path.into_inner();
+    let mut manager = PRESET_MANAGER.lock().unwrap();
+    
+    let modulation = match body.modulation.to_uppercase().as_str() {
+        "AM" => Modulation::AM,
+        "FM" | "NFM" => Modulation::NFM,
+        "WFM" => Modulation::WFM,
+        "USB" => Modulation::USB,
+        "LSB" => Modulation::LSB,
+        "CW" => Modulation::CW,
+        "RAW" => Modulation::RAW,
+        _ => Modulation::Unknown,
+    };
+    
+    let category = body.category.as_ref().map(|c| {
+        match c.to_lowercase().as_str() {
+            "fm" | "fmbroadcast" => PresetCategory::FmBroadcast,
+            "am" | "ambroadcast" => PresetCategory::AmBroadcast,
+            "shortwave" => PresetCategory::Shortwave,
+            "noaa" | "weather" => PresetCategory::NoaaWeather,
+            "emergency" => PresetCategory::EmergencyServices,
+            "aviation" | "airband" => PresetCategory::AirBand,
+            "marine" => PresetCategory::MarineVhf,
+            "ham" | "amateur" => PresetCategory::HamVhf,
+            "numbers" => PresetCategory::NumbersStation,
+            _ => PresetCategory::Custom,
+        }
+    }).unwrap_or(PresetCategory::Custom);
+    
+    let preset = FrequencyPreset {
+        id: format!("user_{}_{}", list_id, body.frequency_hz),
+        name: body.name.clone(),
+        frequency_hz: body.frequency_hz,
+        modulation,
+        bandwidth_hz: body.bandwidth_hz,
+        category,
+        description: body.description.clone(),
+        tags: body.tags.clone().unwrap_or_default(),
+        squelch: body.squelch,
+        gain: body.gain,
+        favorite: false,
+        last_used: None,
+        notes: body.notes.clone(),
+    };
+    
+    match manager.add_preset(&list_id, preset) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({ "error": e }))
+    }
+}
+
+async fn remove_preset(path: web::Path<(String, String)>) -> impl Responder {
+    let (list_id, preset_id) = path.into_inner();
+    let mut manager = PRESET_MANAGER.lock().unwrap();
+    
+    match manager.remove_preset(&list_id, &preset_id) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({ "error": e }))
+    }
+}
+
+#[derive(Deserialize)]
+struct SearchPresetsQuery {
+    q: String,
+}
+
+async fn search_presets(query: web::Query<SearchPresetsQuery>) -> impl Responder {
+    let manager = PRESET_MANAGER.lock().unwrap();
+    let results: Vec<_> = manager.search(&query.q).into_iter().cloned().collect();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "query": query.q,
+        "results": results
+    }))
+}
+
+async fn get_favorite_presets() -> impl Responder {
+    let manager = PRESET_MANAGER.lock().unwrap();
+    let favorites: Vec<_> = manager.get_favorites().into_iter().cloned().collect();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "favorites": favorites
+    }))
+}
+
+// ============================================
+// Radio Reception (rtl_fm)
+// ============================================
+
+static RADIO_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static RADIO_FREQ: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(0));
+static RADIO_MOD: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("fm".to_string()));
+
+#[derive(Deserialize)]
+struct TuneRadioRequest {
+    frequency_hz: u64,
+    modulation: Option<String>,
+    squelch: Option<i32>,
+    gain: Option<i32>,
+    device_index: Option<u32>,
+}
+
+async fn tune_radio(body: web::Json<TuneRadioRequest>) -> impl Responder {
+    let caps = SdrCapabilities::detect();
+    
+    if !caps.rtl_sdr {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "RTL-SDR not available",
+            "hint": "Install rtl-sdr package"
+        }));
+    }
+    
+    // Stop any existing radio
+    let _ = std::process::Command::new("pkill").args(&["-f", "rtl_fm"]).output();
+    
+    let modulation = body.modulation.clone().unwrap_or_else(|| "fm".to_string());
+    let mod_arg = match modulation.to_lowercase().as_str() {
+        "am" => "am",
+        "wfm" | "wbfm" => "wbfm",
+        "usb" => "usb",
+        "lsb" => "lsb",
+        "cw" => "cw",
+        _ => "fm",
+    };
+    
+    let freq_str = body.frequency_hz.to_string();
+    let mut args = vec!["-f", &freq_str, "-M", mod_arg];
+    
+    let squelch_str;
+    if let Some(sq) = body.squelch {
+        squelch_str = sq.to_string();
+        args.extend(&["-l", &squelch_str]);
+    }
+    
+    let gain_str;
+    if let Some(g) = body.gain {
+        gain_str = g.to_string();
+        args.extend(&["-g", &gain_str]);
+    }
+    
+    let device_str;
+    if let Some(d) = body.device_index {
+        device_str = d.to_string();
+        args.extend(&["-d", &device_str]);
+    }
+    
+    // Pipe to aplay for audio output
+    args.extend(&["-", "|", "aplay", "-r", "24000", "-f", "S16_LE"]);
+    
+    // Start rtl_fm in background
+    let _child = std::process::Command::new("sh")
+        .args(&["-c", &format!("rtl_fm {} 2>/dev/null | aplay -r 24000 -f S16_LE -t raw 2>/dev/null &", 
+            args[..args.len()-4].join(" "))])
+        .spawn();
+    
+    {
+        let mut running = RADIO_RUNNING.lock().unwrap();
+        *running = true;
+    }
+    {
+        let mut freq = RADIO_FREQ.lock().unwrap();
+        *freq = body.frequency_hz;
+    }
+    {
+        let mut m = RADIO_MOD.lock().unwrap();
+        *m = modulation.clone();
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "tuned",
+        "frequency_hz": body.frequency_hz,
+        "frequency_mhz": body.frequency_hz as f64 / 1_000_000.0,
+        "modulation": modulation
+    }))
+}
+
+async fn stop_radio() -> impl Responder {
+    let _ = std::process::Command::new("pkill").args(&["-f", "rtl_fm"]).output();
+    let _ = std::process::Command::new("pkill").args(&["-f", "aplay"]).output();
+    
+    {
+        let mut running = RADIO_RUNNING.lock().unwrap();
+        *running = false;
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "stopped"
+    }))
+}
+
+async fn get_radio_status() -> impl Responder {
+    let running = { *RADIO_RUNNING.lock().unwrap() };
+    let freq = { *RADIO_FREQ.lock().unwrap() };
+    let modulation = { RADIO_MOD.lock().unwrap().clone() };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "running": running,
+        "frequency_hz": freq,
+        "frequency_mhz": freq as f64 / 1_000_000.0,
+        "modulation": modulation
+    }))
+}
+
+// ============================================
+// TSCM Bug Detection / Counter-Surveillance
+// ============================================
+
+use crate::sdr::tscm::{SurveillanceBand, TscmSweepConfig, ThreatCategory, ThreatSeverity};
+
+static TSCM_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static TSCM_THREATS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static TSCM_PROGRESS: Lazy<Mutex<f32>> = Lazy::new(|| Mutex::new(0.0));
+
+#[derive(Deserialize)]
+struct TscmSweepRequest {
+    sweep_type: Option<String>, // quick, standard, full, federal
+}
+
+async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
+    let caps = SdrCapabilities::detect();
+    
+    if !caps.hackrf && !caps.rtl_sdr {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "No SDR hardware available",
+            "hint": "TSCM sweep requires RTL-SDR or HackRF"
+        }));
+    }
+    
+    {
+        let running = TSCM_RUNNING.lock().unwrap();
+        if *running {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "status": "already_running"
+            }));
+        }
+    }
+    
+    let sweep_config = match body.sweep_type.as_deref() {
+        Some("quick") => TscmSweepConfig::quick_sweep(),
+        Some("full") => TscmSweepConfig::full_sweep(),
+        Some("federal") => TscmSweepConfig::federal_threat_sweep(),
+        _ => TscmSweepConfig::standard_sweep(),
+    };
+    
+    {
+        let mut running = TSCM_RUNNING.lock().unwrap();
+        *running = true;
+    }
+    {
+        let mut progress = TSCM_PROGRESS.lock().unwrap();
+        *progress = 0.0;
+    }
+    {
+        let mut threats = TSCM_THREATS.lock().unwrap();
+        threats.clear();
+    }
+    
+    let has_hackrf = caps.hackrf;
+    let sweep_name = sweep_config.name.clone();
+    let bands = sweep_config.bands.clone();
+    let threshold = sweep_config.threshold_db;
+    
+    // Spawn sweep task
+    tokio::spawn(async move {
+        let threat_db = SurveillanceBand::threat_database();
+        let total_bands = bands.len();
+        
+        for (i, (start_hz, end_hz)) in bands.iter().enumerate() {
+            // Check if still running
+            if !{ *TSCM_RUNNING.lock().unwrap() } {
+                break;
+            }
+            
+            // Update progress
+            {
+                let mut progress = TSCM_PROGRESS.lock().unwrap();
+                *progress = (i as f32 / total_bands as f32) * 100.0;
+            }
+            
+            let start_mhz = (start_hz / 1_000_000) as u32;
+            let end_mhz = (end_hz / 1_000_000) as u32;
+            
+            // Choose scan method based on frequency and hardware
+            let scan_result = if has_hackrf && end_mhz > 1700 {
+                // HackRF for higher frequencies
+                tokio::process::Command::new("hackrf_sweep")
+                    .args(&["-f", &format!("{}:{}", start_mhz, end_mhz), "-w", "100000", "-1"])
+                    .output()
+                    .await
+            } else if start_mhz < 1700 {
+                // RTL-SDR for lower frequencies
+                tokio::process::Command::new("rtl_power")
+                    .args(&["-f", &format!("{}M:{}M:100k", start_mhz, end_mhz), "-i", "1", "-1"])
+                    .output()
+                    .await
+            } else {
+                continue; // Skip bands we can't scan
+            };
+            
+            if let Ok(output) = scan_result {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                
+                // Parse and look for anomalies
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() < 7 {
+                        continue;
+                    }
+                    
+                    if let (Ok(hz_low), Ok(hz_step)) = (
+                        parts[2].trim().parse::<u64>(),
+                        parts[4].trim().parse::<u64>(),
+                    ) {
+                        for (idx, db_str) in parts[6..].iter().enumerate() {
+                            if let Ok(power_db) = db_str.trim().parse::<f64>() {
+                                let freq = hz_low + (idx as u64 * hz_step);
+                                
+                                // Check against threshold
+                                if power_db > threshold {
+                                    // Check if frequency matches known threat
+                                    for threat_band in &threat_db {
+                                        if freq >= threat_band.start_hz && freq <= threat_band.end_hz {
+                                            let threat = serde_json::json!({
+                                                "frequency_hz": freq,
+                                                "frequency_mhz": freq as f64 / 1_000_000.0,
+                                                "power_db": power_db,
+                                                "category": format!("{:?}", threat_band.category),
+                                                "severity": format!("{:?}", threat_band.severity),
+                                                "band_name": threat_band.name,
+                                                "description": threat_band.description,
+                                                "source": threat_band.source,
+                                                "timestamp": std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs()
+                                            });
+                                            
+                                            let mut threats = TSCM_THREATS.lock().unwrap();
+                                            threats.push(threat);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Brief pause between bands
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+        
+        // Mark complete
+        {
+            let mut running = TSCM_RUNNING.lock().unwrap();
+            *running = false;
+        }
+        {
+            let mut progress = TSCM_PROGRESS.lock().unwrap();
+            *progress = 100.0;
+        }
+    });
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "started",
+        "sweep_type": sweep_name,
+        "bands_to_scan": bands.len()
+    }))
+}
+
+async fn get_tscm_status() -> impl Responder {
+    let running = { *TSCM_RUNNING.lock().unwrap() };
+    let progress = { *TSCM_PROGRESS.lock().unwrap() };
+    let threats = { TSCM_THREATS.lock().unwrap().clone() };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "running": running,
+        "progress": progress,
+        "threats_found": threats.len(),
+        "threats": threats
+    }))
+}
+
+async fn stop_tscm_sweep() -> impl Responder {
+    {
+        let mut running = TSCM_RUNNING.lock().unwrap();
+        *running = false;
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "stopped"
+    }))
+}
+
+async fn get_tscm_threats() -> impl Responder {
+    // Return the full threat database for reference
+    let bands = SurveillanceBand::threat_database();
+    let threats: Vec<_> = bands.iter().map(|b| {
+        serde_json::json!({
+            "name": b.name,
+            "start_mhz": b.start_hz as f64 / 1_000_000.0,
+            "end_mhz": b.end_hz as f64 / 1_000_000.0,
+            "category": format!("{:?}", b.category),
+            "severity": format!("{:?}", b.severity),
+            "description": b.description,
+            "source": b.source
+        })
+    }).collect();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "threat_database": threats,
+        "total_bands": threats.len()
     }))
 }

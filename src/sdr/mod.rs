@@ -9,6 +9,8 @@
 //! - TSCM counter-surveillance sweeping
 //! - Environmental sensors (Geiger, air quality, CBRN)
 //! - ADS-B aircraft tracking
+//! - Radio reception (FM, AM, SSB)
+//! - Frequency presets and station management
 
 pub mod rtl433;
 pub mod spectrum;
@@ -17,6 +19,12 @@ pub mod drone;
 pub mod trunked;
 pub mod tscm;
 pub mod environmental;
+pub mod presets;
+pub mod cots_drones;
+pub mod tradecraft;
+pub mod consumer_tactical_radios;
+pub mod advanced_threats;
+pub mod energy_weapons;
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;
