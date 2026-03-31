@@ -19,7 +19,8 @@ pub struct GpsPosition {
     pub heading: Option<f64>,
     pub accuracy: Option<f64>,
     pub fix_type: GpsFixType,
-    pub satellites: u8,
+    pub satellites: u8,        // Satellites being used for fix
+    pub satellites_seen: u8,   // Total satellites visible
     pub timestamp: DateTime<Utc>,
 }
 
@@ -149,19 +150,25 @@ fn parse_gpsd_json(line: &str) -> Option<GpsPosition> {
                 3 => GpsFixType::Fix3D,
                 _ => GpsFixType::NoFix,
             },
-            satellites: json.get("satellites").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+            satellites: 0, // Will be updated from SKY message
+            satellites_seen: 0,
             timestamp: Utc::now(),
         });
     }
     
     // Handle SKY (satellite) messages to get satellite count
     if class == "SKY" {
-        let sats = json.get("satellites")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.len())
-            .unwrap_or(0) as u8;
+        let sats_seen = json.get("nSat")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| {
+                // Fallback: count satellites array
+                json.get("satellites")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.len() as u64)
+                    .unwrap_or(0)
+            }) as u8;
         
-        let used_sats = json.get("uSat")
+        let sats_used = json.get("uSat")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u8;
         
@@ -174,7 +181,8 @@ fn parse_gpsd_json(line: &str) -> Option<GpsPosition> {
             heading: None,
             accuracy: None,
             fix_type: GpsFixType::NoFix,
-            satellites: if used_sats > 0 { used_sats } else { sats },
+            satellites: sats_used,
+            satellites_seen: sats_seen,
             timestamp: Utc::now(),
         });
     }

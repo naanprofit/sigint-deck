@@ -1099,10 +1099,176 @@ pub async fn test_llm_connection(
 // SETTINGS ENDPOINTS
 // ============================================
 
-/// GET /api/settings - Get all settings
+/// GET /api/settings - Get all settings from config file
 async fn get_settings() -> impl Responder {
-    // In a real implementation, this would read from SettingsManager
-    // For now, return default settings
+    // Find existing config file
+    let config_paths = [
+        dirs::home_dir()
+            .map(|h| h.join("sigint-deck").join("config.toml"))
+            .unwrap_or_default(),
+        dirs::home_dir()
+            .map(|h| h.join("sigint-pi").join("config.toml"))
+            .unwrap_or_default(),
+        std::path::PathBuf::from("./config.toml"),
+    ];
+    
+    let config_path = config_paths.iter().find(|p| p.exists());
+    
+    if let Some(path) = config_path {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(config) = toml::from_str::<toml::Value>(&content) {
+                // Convert TOML to JSON-friendly settings format
+                let settings = serde_json::json!({
+                    "wifi": {
+                        "enabled": config.get("wifi")
+                            .and_then(|w| w.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true),
+                    },
+                    "bluetooth": {
+                        "enabled": config.get("bluetooth")
+                            .and_then(|b| b.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true),
+                        "detect_trackers": config.get("bluetooth")
+                            .and_then(|b| b.get("detect_trackers"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true),
+                    },
+                    "gps": {
+                        "enabled": config.get("gps")
+                            .and_then(|g| g.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        "geofencing": config.get("gps")
+                            .and_then(|g| g.get("geofencing_enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                    },
+                    "alerts": {
+                        "sound": {
+                            "enabled": config.get("alerts")
+                                .and_then(|a| a.get("sound"))
+                                .and_then(|s| s.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true),
+                            "ninja_mode": config.get("alerts")
+                                .and_then(|a| a.get("sound"))
+                                .and_then(|s| s.get("ninja_mode"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            "volume": config.get("alerts")
+                                .and_then(|a| a.get("sound"))
+                                .and_then(|s| s.get("volume"))
+                                .and_then(|v| v.as_integer())
+                                .unwrap_or(80) as u8,
+                        },
+                        "telegram": {
+                            "enabled": config.get("alerts")
+                                .and_then(|a| a.get("telegram"))
+                                .and_then(|t| t.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            "bot_token": config.get("alerts")
+                                .and_then(|a| a.get("telegram"))
+                                .and_then(|t| t.get("bot_token"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                            "chat_id": config.get("alerts")
+                                .and_then(|a| a.get("telegram"))
+                                .and_then(|t| t.get("chat_id"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                        },
+                        "signal": {
+                            "enabled": config.get("alerts")
+                                .and_then(|a| a.get("signal"))
+                                .and_then(|s| s.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            "sender_number": config.get("alerts")
+                                .and_then(|a| a.get("signal"))
+                                .and_then(|s| s.get("sender_number"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                            "recipients": config.get("alerts")
+                                .and_then(|a| a.get("signal"))
+                                .and_then(|s| s.get("recipients"))
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.iter()
+                                    .filter_map(|v| v.as_str())
+                                    .map(String::from)
+                                    .collect::<Vec<_>>())
+                                .unwrap_or_default(),
+                        },
+                        "mqtt": {
+                            "enabled": config.get("alerts")
+                                .and_then(|a| a.get("mqtt"))
+                                .and_then(|m| m.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            "broker_url": config.get("alerts")
+                                .and_then(|a| a.get("mqtt"))
+                                .and_then(|m| m.get("broker_url"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                            "topic_prefix": config.get("alerts")
+                                .and_then(|a| a.get("mqtt"))
+                                .and_then(|m| m.get("topic_prefix"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("sigint"),
+                        },
+                        "openclaw": {
+                            "enabled": config.get("alerts")
+                                .and_then(|a| a.get("openclaw"))
+                                .and_then(|o| o.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            "webhook_url": config.get("alerts")
+                                .and_then(|a| a.get("openclaw"))
+                                .and_then(|o| o.get("webhook_url"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                        },
+                    },
+                    "llm": {
+                        "enabled": config.get("llm")
+                            .and_then(|l| l.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        "provider": config.get("llm")
+                            .and_then(|l| l.get("provider"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("ollama"),
+                        "endpoint": config.get("llm")
+                            .and_then(|l| l.get("endpoint"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("http://localhost:11434"),
+                        "model": config.get("llm")
+                            .and_then(|l| l.get("model"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("llama3"),
+                    },
+                    "power": {
+                        "sleep_inhibit": config.get("power")
+                            .and_then(|p| p.get("sleep_inhibit"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                    },
+                    "general": {
+                        "ninja_mode": config.get("alerts")
+                            .and_then(|a| a.get("sound"))
+                            .and_then(|s| s.get("ninja_mode"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                    },
+                });
+                return HttpResponse::Ok().json(settings);
+            }
+        }
+    }
+    
+    // Fallback to default settings
     let settings = crate::settings::AppSettings::default();
     HttpResponse::Ok().json(settings)
 }
