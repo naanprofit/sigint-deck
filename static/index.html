@@ -1745,6 +1745,12 @@
         <button class="tab-btn" data-tab="sdr" tabindex="0">
             📻 SDR <span class="badge-count" id="sdrBadge">--</span>
         </button>
+        <button class="tab-btn" data-tab="radio" tabindex="0">
+            🎵 Radio
+        </button>
+        <button class="tab-btn" data-tab="tscm" tabindex="0">
+            🔍 TSCM <span class="badge-count" id="tscmBadge">--</span>
+        </button>
         <button class="tab-btn" data-tab="settings" tabindex="0">
             ⚙️ Settings
         </button>
@@ -2039,6 +2045,205 @@
                     <button class="action-btn" onclick="stopAudioStream()">⏹️ Stop</button>
                 </div>
                 <div id="audioPlayer" style="margin-top: 0.5rem;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Radio Tab -->
+    <div class="tab-content" id="tab-radio">
+        <div class="sdr-panel">
+            <div class="sdr-header">
+                <div class="sdr-logo">🎵</div>
+                <div class="sdr-title">
+                    <h3>Radio Receiver</h3>
+                    <span class="sdr-subtitle">FM, AM, Shortwave, Weather, Emergency</span>
+                </div>
+            </div>
+            
+            <!-- Radio Status -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📻 Radio Status</h4>
+                </div>
+                <div class="radio-status" id="radioStatus">
+                    <div class="status-card">
+                        <span class="status-label">Status</span>
+                        <span class="status-value" id="radioRunning">Stopped</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Frequency</span>
+                        <span class="status-value" id="radioFrequency">--</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Modulation</span>
+                        <span class="status-value" id="radioModulation">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Manual Tuning -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🎚️ Manual Tuning</h4>
+                </div>
+                <div class="radio-tuner">
+                    <div class="tuner-row">
+                        <input type="number" id="radioFreqInput" placeholder="Frequency (Hz)" style="width: 150px;" class="spectrum-input">
+                        <select id="radioModSelect" class="spectrum-select">
+                            <option value="fm">FM (Narrowband)</option>
+                            <option value="wfm">WFM (Broadcast)</option>
+                            <option value="am">AM</option>
+                            <option value="usb">USB (Upper Sideband)</option>
+                            <option value="lsb">LSB (Lower Sideband)</option>
+                            <option value="cw">CW (Morse)</option>
+                        </select>
+                        <input type="number" id="radioSqInput" placeholder="Squelch (dB)" value="-40" style="width: 100px;" class="spectrum-input">
+                        <button class="action-btn" onclick="tuneRadio()">▶️ Tune</button>
+                        <button class="action-btn" onclick="stopRadio()">⏹️ Stop</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Preset Lists -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📋 Frequency Presets</h4>
+                    <button class="action-btn" onclick="loadPresets()">🔄 Refresh</button>
+                </div>
+                <div class="preset-categories">
+                    <button class="preset-cat-btn active" onclick="showPresetList('noaa')">🌦️ NOAA Weather</button>
+                    <button class="preset-cat-btn" onclick="showPresetList('marine')">⚓ Marine VHF</button>
+                    <button class="preset-cat-btn" onclick="showPresetList('airband')">✈️ Aviation</button>
+                    <button class="preset-cat-btn" onclick="showPresetList('ham')">📡 Ham Radio</button>
+                    <button class="preset-cat-btn" onclick="showPresetList('emergency')">🚨 Emergency</button>
+                    <button class="preset-cat-btn" onclick="showPresetList('numbers')">🔢 Numbers Stations</button>
+                </div>
+                <div id="presetList" class="preset-list">
+                    <div class="empty-state">Select a category to view presets</div>
+                </div>
+            </div>
+            
+            <!-- Search Presets -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🔍 Search Presets</h4>
+                </div>
+                <div class="search-row">
+                    <input type="text" id="presetSearchInput" placeholder="Search by name, frequency, or tag..." style="flex: 1;" class="spectrum-input">
+                    <button class="action-btn" onclick="searchPresets()">Search</button>
+                </div>
+                <div id="presetSearchResults" class="preset-list" style="margin-top: 0.5rem;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- TSCM Tab (Technical Surveillance Countermeasures) -->
+    <div class="tab-content" id="tab-tscm">
+        <div class="sdr-panel">
+            <div class="sdr-header">
+                <div class="sdr-logo">🔍</div>
+                <div class="sdr-title">
+                    <h3>TSCM Bug Detection</h3>
+                    <span class="sdr-subtitle">Technical Surveillance Countermeasures</span>
+                </div>
+            </div>
+            
+            <!-- Legal Warning -->
+            <div class="legal-warning" style="background: rgba(210, 153, 34, 0.2); border: 1px solid var(--accent-yellow); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                <strong>⚠️ Legal Notice:</strong> TSCM sweeps should only be conducted on property you own or have explicit authorization to sweep. 
+                This tool is for defensive counter-surveillance only. See <a href="LEGAL.md" style="color: var(--accent-blue);">LEGAL.md</a> for full terms.
+            </div>
+            
+            <!-- Sweep Controls -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🎯 Sweep Controls</h4>
+                </div>
+                <div class="sweep-controls">
+                    <select id="sweepType" class="spectrum-select" style="width: 200px;">
+                        <option value="quick">Quick Sweep (5-10 min)</option>
+                        <option value="standard" selected>Standard Sweep (20-30 min)</option>
+                        <option value="full">Full Sweep (1-2 hours)</option>
+                        <option value="federal">Federal Threat Sweep (Extended)</option>
+                    </select>
+                    <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start Sweep</button>
+                    <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
+                </div>
+                
+                <!-- Progress -->
+                <div class="sweep-progress" id="sweepProgress" style="margin-top: 1rem; display: none;">
+                    <div class="progress-bar-container" style="background: var(--bg-tertiary); border-radius: 4px; height: 24px; overflow: hidden;">
+                        <div class="progress-bar" id="sweepProgressBar" style="background: var(--accent-blue); height: 100%; width: 0%; transition: width 0.5s;"></div>
+                    </div>
+                    <div class="progress-text" id="sweepProgressText" style="margin-top: 0.5rem; text-align: center;">0%</div>
+                </div>
+            </div>
+            
+            <!-- Sweep Status -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📊 Sweep Status</h4>
+                    <button class="action-btn" onclick="refreshTscmStatus()">🔄 Refresh</button>
+                </div>
+                <div class="sdr-status-grid" id="tscmStatusGrid">
+                    <div class="status-card">
+                        <span class="status-label">Status</span>
+                        <span class="status-value" id="tscmRunning">Idle</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Progress</span>
+                        <span class="status-value" id="tscmProgress">0%</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Threats Found</span>
+                        <span class="status-value" id="tscmThreatsFound">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Detected Threats -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🚨 Detected Threats</h4>
+                </div>
+                <div id="tscmThreatList" class="device-list">
+                    <div class="empty-state">No threats detected. Run a sweep to scan for surveillance devices.</div>
+                </div>
+            </div>
+            
+            <!-- Threat Database Reference -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>📚 Threat Database</h4>
+                    <button class="action-btn" onclick="loadThreatDatabase()">Load Database</button>
+                </div>
+                <div class="sdr-info-text">
+                    Reference database of known surveillance device frequencies including audio bugs, video transmitters, 
+                    GPS trackers, body wires, carrier current devices, and more.
+                </div>
+                <div id="threatDatabaseList" class="device-list" style="max-height: 300px; overflow-y: auto;">
+                    <div class="empty-state">Click "Load Database" to view known threat frequencies</div>
+                </div>
+            </div>
+            
+            <!-- Drone Detection (Enhanced) -->
+            <div class="sdr-section">
+                <div class="sdr-section-header">
+                    <h4>🚁 Drone Detection (RF + EMI)</h4>
+                </div>
+                <div class="drone-controls" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="action-btn" onclick="scanDronesRf()">📡 RF Scan</button>
+                    <button class="action-btn" onclick="scanDronesEmi()">⚡ EMI Scan</button>
+                    <button class="action-btn" onclick="scanDronesFull()">🔍 Full Scan (RF+EMI)</button>
+                </div>
+                <div class="sdr-info-text" style="margin-top: 0.5rem;">
+                    <strong>RF Scan:</strong> Detects 2.4/5.8 GHz control and video signals<br>
+                    <strong>EMI Scan:</strong> Detects motor/ESC electronic noise (works even if drone is in autonomous mode)<br>
+                    <strong>Full Scan:</strong> Combined detection for highest confidence (~95%)
+                </div>
+                <div id="droneDetectionResults" class="device-list" style="margin-top: 0.5rem;">
+                    <div class="empty-state">Run a scan to detect nearby drones</div>
+                </div>
             </div>
         </div>
     </div>
@@ -3212,6 +3417,392 @@
         
         function stopAudioStream() {
             // Placeholder
+        }
+
+        // ============================================
+        // Radio Tab Functions
+        // ============================================
+        
+        async function tuneRadio() {
+            const freqInput = document.getElementById('radioFreqInput');
+            const modSelect = document.getElementById('radioModSelect');
+            const sqInput = document.getElementById('radioSqInput');
+            
+            const frequency_hz = parseInt(freqInput.value);
+            if (!frequency_hz || frequency_hz < 1000) {
+                alert('Please enter a valid frequency in Hz (e.g., 162550000 for 162.55 MHz)');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/sdr/radio/tune', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        frequency_hz: frequency_hz,
+                        modulation: modSelect.value,
+                        squelch: parseInt(sqInput.value) || -40
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                document.getElementById('radioRunning').textContent = 'Playing';
+                document.getElementById('radioRunning').style.color = 'var(--accent-green)';
+                document.getElementById('radioFrequency').textContent = (data.frequency_hz / 1000000).toFixed(3) + ' MHz';
+                document.getElementById('radioModulation').textContent = data.modulation.toUpperCase();
+            } catch (e) {
+                alert('Failed to tune: ' + e.message);
+            }
+        }
+        
+        async function stopRadio() {
+            try {
+                await fetch('/api/sdr/radio/stop', { method: 'POST' });
+                document.getElementById('radioRunning').textContent = 'Stopped';
+                document.getElementById('radioRunning').style.color = 'var(--text-secondary)';
+            } catch (e) {
+                console.error('Stop radio failed:', e);
+            }
+        }
+        
+        async function loadPresets() {
+            try {
+                const response = await fetch('/api/sdr/presets');
+                const data = await response.json();
+                console.log('Presets loaded:', data);
+            } catch (e) {
+                console.error('Failed to load presets:', e);
+            }
+        }
+        
+        async function showPresetList(listId) {
+            const container = document.getElementById('presetList');
+            container.innerHTML = '<div class="empty-state">Loading...</div>';
+            
+            // Update active button
+            document.querySelectorAll('.preset-cat-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            try {
+                const response = await fetch(`/api/sdr/presets/${listId}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}</div>`;
+                    return;
+                }
+                
+                if (!data.presets || data.presets.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No presets in this category</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.presets.map(p => `
+                    <div class="preset-item" onclick="tunePreset(${p.frequency_hz}, '${p.modulation || 'fm'}')">
+                        <div class="preset-info">
+                            <div class="preset-name">${p.name}</div>
+                            <div class="preset-details">${(p.frequency_hz / 1000000).toFixed(3)} MHz • ${p.modulation || 'FM'}</div>
+                        </div>
+                        <button class="action-btn" onclick="event.stopPropagation(); tunePreset(${p.frequency_hz}, '${p.modulation || 'fm'}')">▶️</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Failed to load: ${e.message}</div>`;
+            }
+        }
+        
+        function tunePreset(frequency_hz, modulation) {
+            document.getElementById('radioFreqInput').value = frequency_hz;
+            document.getElementById('radioModSelect').value = modulation.toLowerCase();
+            tuneRadio();
+        }
+        
+        async function searchPresets() {
+            const query = document.getElementById('presetSearchInput').value;
+            const container = document.getElementById('presetSearchResults');
+            
+            if (!query) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            container.innerHTML = '<div class="empty-state">Searching...</div>';
+            
+            try {
+                const response = await fetch(`/api/sdr/presets/search?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                if (!data.results || data.results.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No results found</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.results.map(p => `
+                    <div class="preset-item" onclick="tunePreset(${p.frequency_hz}, '${p.modulation || 'fm'}')">
+                        <div class="preset-info">
+                            <div class="preset-name">${p.name}</div>
+                            <div class="preset-details">${(p.frequency_hz / 1000000).toFixed(3)} MHz • ${p.modulation || 'FM'}</div>
+                        </div>
+                        <button class="action-btn">▶️</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Search failed: ${e.message}</div>`;
+            }
+        }
+        
+        // ============================================
+        // TSCM Tab Functions
+        // ============================================
+        
+        async function startTscmSweep() {
+            const sweepType = document.getElementById('sweepType').value;
+            const btn = document.getElementById('tscmStartBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Starting...';
+            
+            document.getElementById('sweepProgress').style.display = 'block';
+            document.getElementById('sweepProgressBar').style.width = '0%';
+            document.getElementById('sweepProgressText').textContent = 'Starting sweep...';
+            
+            try {
+                const response = await fetch('/api/sdr/tscm/sweep', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sweep_type: sweepType })
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error + (data.hint ? '\n' + data.hint : ''));
+                    btn.disabled = false;
+                    btn.textContent = '▶️ Start Sweep';
+                    return;
+                }
+                
+                document.getElementById('tscmRunning').textContent = 'Running';
+                document.getElementById('tscmRunning').style.color = 'var(--accent-green)';
+                btn.textContent = '⏳ Sweeping...';
+                
+                // Poll for status
+                pollTscmStatus();
+            } catch (e) {
+                alert('Failed to start sweep: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = '▶️ Start Sweep';
+            }
+        }
+        
+        async function stopTscmSweep() {
+            try {
+                await fetch('/api/sdr/tscm/stop', { method: 'POST' });
+                document.getElementById('tscmRunning').textContent = 'Stopped';
+                document.getElementById('tscmRunning').style.color = 'var(--text-secondary)';
+                document.getElementById('tscmStartBtn').disabled = false;
+                document.getElementById('tscmStartBtn').textContent = '▶️ Start Sweep';
+            } catch (e) {
+                console.error('Stop failed:', e);
+            }
+        }
+        
+        let tscmPollInterval = null;
+        
+        function pollTscmStatus() {
+            if (tscmPollInterval) clearInterval(tscmPollInterval);
+            tscmPollInterval = setInterval(refreshTscmStatus, 2000);
+        }
+        
+        async function refreshTscmStatus() {
+            try {
+                const response = await fetch('/api/sdr/tscm/status');
+                const data = await response.json();
+                
+                document.getElementById('tscmProgress').textContent = Math.round(data.progress || 0) + '%';
+                document.getElementById('tscmThreatsFound').textContent = data.threats_found || 0;
+                document.getElementById('sweepProgressBar').style.width = (data.progress || 0) + '%';
+                document.getElementById('sweepProgressText').textContent = Math.round(data.progress || 0) + '%';
+                
+                if (data.running) {
+                    document.getElementById('tscmRunning').textContent = 'Running';
+                    document.getElementById('tscmRunning').style.color = 'var(--accent-green)';
+                } else {
+                    document.getElementById('tscmRunning').textContent = data.progress >= 100 ? 'Complete' : 'Idle';
+                    document.getElementById('tscmRunning').style.color = 'var(--text-secondary)';
+                    document.getElementById('tscmStartBtn').disabled = false;
+                    document.getElementById('tscmStartBtn').textContent = '▶️ Start Sweep';
+                    if (tscmPollInterval) {
+                        clearInterval(tscmPollInterval);
+                        tscmPollInterval = null;
+                    }
+                }
+                
+                // Render threats
+                renderTscmThreats(data.threats || []);
+            } catch (e) {
+                console.error('TSCM status failed:', e);
+            }
+        }
+        
+        function renderTscmThreats(threats) {
+            const container = document.getElementById('tscmThreatList');
+            
+            if (!threats || threats.length === 0) {
+                container.innerHTML = '<div class="empty-state">No threats detected</div>';
+                return;
+            }
+            
+            container.innerHTML = threats.map(t => `
+                <div class="threat-item" style="border-left: 3px solid ${getSeverityColor(t.severity)};">
+                    <div class="threat-info">
+                        <div class="threat-name">⚠️ ${t.band_name || 'Unknown'}</div>
+                        <div class="threat-details">
+                            ${(t.frequency_hz / 1000000).toFixed(3)} MHz • ${t.power_db?.toFixed(1) || '--'} dB
+                        </div>
+                        <div class="threat-category">${t.category || '--'} • ${t.severity || '--'}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function getSeverityColor(severity) {
+            switch ((severity || '').toLowerCase()) {
+                case 'critical': return 'var(--accent-red)';
+                case 'high': return '#ff6b6b';
+                case 'medium': return 'var(--accent-yellow)';
+                default: return 'var(--accent-blue)';
+            }
+        }
+        
+        async function loadThreatDatabase() {
+            const container = document.getElementById('threatDatabaseList');
+            container.innerHTML = '<div class="empty-state">Loading threat database...</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/tscm/threats');
+                const data = await response.json();
+                
+                if (!data.threat_database || data.threat_database.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Threat database empty</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.threat_database.map(t => `
+                    <div class="threat-db-item" style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">
+                        <div style="font-weight: bold;">${t.name}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            ${t.start_mhz?.toFixed(2)} - ${t.end_mhz?.toFixed(2)} MHz • ${t.category} • ${t.severity}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">${t.description || ''}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Failed: ${e.message}</div>`;
+            }
+        }
+        
+        // Drone detection functions (enhanced for TSCM tab)
+        async function scanDronesRf() {
+            const container = document.getElementById('droneDetectionResults');
+            container.innerHTML = '<div class="empty-state">Scanning RF bands (2.4/5.8 GHz)...</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/drone/scan', { method: 'POST' });
+                const data = await response.json();
+                renderDroneResults(data, 'RF');
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">RF scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        async function scanDronesEmi() {
+            const container = document.getElementById('droneDetectionResults');
+            container.innerHTML = '<div class="empty-state">Scanning EMI (motor harmonics)...</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/drone/emi', { method: 'POST' });
+                const data = await response.json();
+                renderDroneResults(data, 'EMI');
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">EMI scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        async function scanDronesFull() {
+            const container = document.getElementById('droneDetectionResults');
+            container.innerHTML = '<div class="empty-state">Running full scan (RF + EMI)...</div>';
+            
+            try {
+                const response = await fetch('/api/sdr/drone/scan/full', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}</div>`;
+                    return;
+                }
+                
+                let html = '';
+                
+                // Combined detections
+                if (data.combined_detections && data.combined_detections.length > 0) {
+                    html += '<h4 style="margin: 0.5rem 0;">Combined Detection Results</h4>';
+                    html += data.combined_detections.map(d => `
+                        <div class="drone-detection" style="border-left: 3px solid ${d.confidence > 0.8 ? 'var(--accent-red)' : 'var(--accent-yellow)'}; padding: 0.5rem; margin: 0.25rem 0; background: var(--bg-tertiary); border-radius: 4px;">
+                            <div style="font-weight: bold;">🚁 ${d.description || 'Drone Detected'}</div>
+                            <div style="font-size: 0.85rem;">Method: ${d.detection_method} • Confidence: ${Math.round((d.confidence || 0) * 100)}%</div>
+                            <div style="font-size: 0.85rem;">Threat Level: <span style="color: ${d.threat_level === 'high' ? 'var(--accent-red)' : 'var(--accent-yellow)'}">${d.threat_level}</span></div>
+                        </div>
+                    `).join('');
+                }
+                
+                // Summary
+                html += `
+                    <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 4px;">
+                        <strong>Summary:</strong> 
+                        RF signals: ${data.detection_summary?.rf_signals || 0} • 
+                        EMI signals: ${data.detection_summary?.emi_signals || 0} • 
+                        Confirmed: ${data.detection_summary?.confirmed_drones || 0}
+                    </div>
+                `;
+                
+                container.innerHTML = html || '<div class="empty-state">No drones detected</div>';
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">Full scan failed: ${e.message}</div>`;
+            }
+        }
+        
+        function renderDroneResults(data, scanType) {
+            const container = document.getElementById('droneDetectionResults');
+            
+            if (data.error) {
+                container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
+                return;
+            }
+            
+            const signals = scanType === 'EMI' ? data.emi_signals : data.signals;
+            
+            if (!signals || signals.length === 0) {
+                container.innerHTML = `<div class="empty-state">No ${scanType} signals detected</div>`;
+                return;
+            }
+            
+            container.innerHTML = signals.map(s => `
+                <div class="drone-signal" style="padding: 0.5rem; margin: 0.25rem 0; background: var(--bg-tertiary); border-radius: 4px;">
+                    <div style="font-weight: bold;">
+                        ${scanType === 'EMI' ? '⚡' : '📡'} ${s.esc_type || s.band || 'Signal'}
+                    </div>
+                    <div style="font-size: 0.85rem;">
+                        ${scanType === 'EMI' 
+                            ? `Fundamental: ${s.fundamental_khz} kHz • Harmonics: ${s.harmonics_detected} • Distance: ${s.estimated_distance}`
+                            : `Freq: ${(s.frequency_hz / 1000000).toFixed(2)} MHz • Power: ${s.power_db} dB`
+                        }
+                    </div>
+                </div>
+            `).join('');
         }
 
         // Event listeners
