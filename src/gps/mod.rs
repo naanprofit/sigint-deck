@@ -228,6 +228,7 @@ mod tests {
             accuracy: None,
             fix_type: GpsFixType::Fix3D,
             satellites: 8,
+            satellites_seen: 12,
             timestamp: Utc::now(),
         };
 
@@ -240,6 +241,7 @@ mod tests {
             accuracy: None,
             fix_type: GpsFixType::Fix3D,
             satellites: 8,
+            satellites_seen: 12,
             timestamp: Utc::now(),
         };
 
