@@ -903,6 +903,45 @@ print_summary() {
     echo -e "${RED}IMPORTANT: This tool is for authorized security research only.${NC}"
     echo -e "${RED}Only monitor networks you own or have permission to test.${NC}"
     echo ""
+    echo -e "${BLUE}Optional Add-ons:${NC}"
+    echo "  SDR Support (RTL-SDR, HackRF, LimeSDR):"
+    echo "    $INSTALL_DIR/scripts/install-sdr.sh"
+    echo ""
+    echo "  RayHunter IMSI Catcher Detection:"
+    echo "    $INSTALL_DIR/scripts/install-adb.sh"
+    echo ""
+}
+
+# Offer optional SDR installation
+offer_sdr_install() {
+    echo ""
+    echo -e "${BLUE}Optional: Install SDR Support?${NC}"
+    echo "This adds support for RTL-SDR, HackRF, and LimeSDR devices."
+    read -p "Install SDR tools? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [ -f "$INSTALL_DIR/scripts/install-sdr.sh" ]; then
+            bash "$INSTALL_DIR/scripts/install-sdr.sh"
+        else
+            echo -e "${YELLOW}SDR install script not found, skipping${NC}"
+        fi
+    fi
+}
+
+# Offer optional RayHunter installation
+offer_rayhunter_install() {
+    echo ""
+    echo -e "${BLUE}Optional: Install RayHunter IMSI Catcher Detection?${NC}"
+    echo "This adds support for EFF's RayHunter (requires Pixel phone)."
+    read -p "Install RayHunter/ADB? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [ -f "$INSTALL_DIR/scripts/install-adb.sh" ]; then
+            bash "$INSTALL_DIR/scripts/install-adb.sh"
+        else
+            echo -e "${YELLOW}ADB install script not found, skipping${NC}"
+        fi
+    fi
 }
 
 # Main installation flow
@@ -921,6 +960,8 @@ main() {
     create_steam_launcher
     setup_python_venv
     add_to_steam
+    offer_sdr_install
+    offer_rayhunter_install
     print_summary
 }
 

@@ -67,6 +67,24 @@ Portable signals intelligence and security monitoring for Steam Deck.
 | USB GPS | VK-162 u-blox 7 | Optional |
 | USB Hub | Powered | Recommended |
 
+### Optional SDR Hardware
+
+SIGINT-Deck supports Software Defined Radio for advanced spectrum monitoring:
+
+| SDR Device | USB ID | Frequency Range | Notes |
+|------------|--------|-----------------|-------|
+| RTL-SDR (RTL2832U) | 0bda:2838 | 24-1766 MHz | Budget option, RX only |
+| HackRF One | 1d50:6089 | 1-6000 MHz | TX/RX capable |
+| LimeSDR Mini | 0403:601f | 10-3500 MHz | Full duplex, high bandwidth |
+| LimeSDR USB | 1d50:6108 | 100kHz-3.8GHz | Professional grade |
+
+### Optional IMSI Catcher Detection
+
+| Component | Recommendation | Notes |
+|-----------|---------------|-------|
+| RayHunter Device | Pixel 3a/4a with RayHunter | EFF's IMSI catcher detector |
+| USB Cable | Data-capable USB-C | Connect phone to Steam Deck |
+
 ## Quick Start
 
 ### 1. Enable Developer Mode
@@ -271,6 +289,111 @@ systemctl --user status sigint-deck
 # Check API
 curl http://localhost:8080/api/status
 ```
+
+## SDR Support (Optional)
+
+SIGINT-Deck supports Software Defined Radios for spectrum monitoring. Since Steam Deck has a read-only root filesystem, SDR tools are installed to `~/bin` to survive SteamOS updates.
+
+### Install SDR Tools
+
+```bash
+# Run the SDR setup script
+~/sigint-deck/scripts/install-sdr.sh
+```
+
+Or install manually:
+
+```bash
+# The script downloads and extracts SDR tools from Arch packages
+mkdir -p ~/sdr-tools ~/bin/lib
+
+# RTL-SDR
+wget "https://archive.archlinux.org/packages/r/rtl-sdr/rtl-sdr-1%3A2.0.2-1-x86_64.pkg.tar.zst" -O rtl-sdr.pkg.tar.zst
+zstd -d rtl-sdr.pkg.tar.zst && tar xf rtl-sdr.pkg.tar
+cp usr/bin/rtl_* ~/bin/ && cp usr/lib/*.so* ~/bin/lib/
+
+# HackRF
+wget "https://archive.archlinux.org/packages/h/hackrf/hackrf-2024.02.1-3-x86_64.pkg.tar.zst" -O hackrf.pkg.tar.zst
+zstd -d hackrf.pkg.tar.zst && tar xf hackrf.pkg.tar
+cp usr/bin/hackrf_* ~/bin/ && cp usr/lib/*.so* ~/bin/lib/
+
+# LimeSDR
+wget "https://archive.archlinux.org/packages/l/limesuite/limesuite-23.11.0-4-x86_64.pkg.tar.zst" -O limesuite.pkg.tar.zst
+zstd -d limesuite.pkg.tar.zst && tar xf limesuite.pkg.tar
+cp usr/bin/Lime* ~/bin/ && cp usr/lib/*.so* ~/bin/lib/
+
+# Add to .bashrc
+echo 'export LD_LIBRARY_PATH="$HOME/bin/lib:$LD_LIBRARY_PATH"' >> ~/.bashrc
+```
+
+### SDR Tools Reference
+
+| Tool | Purpose | Example |
+|------|---------|---------|
+| `rtl_sdr` | Raw I/Q capture | `rtl_sdr -f 433.92M -s 2.4M capture.bin` |
+| `rtl_fm` | FM demodulation | `rtl_fm -f 99.5M -M wbfm -s 200k - \| aplay -r 48000` |
+| `rtl_power` | Spectrum scanning | `rtl_power -f 400M:500M:100k -i 1 scan.csv` |
+| `rtl_adsb` | Aircraft tracking | `rtl_adsb` |
+| `hackrf_info` | HackRF device info | `hackrf_info` |
+| `hackrf_sweep` | Wideband sweep | `hackrf_sweep -f 2400:2500 -w 100000` |
+| `hackrf_transfer` | Raw TX/RX | `hackrf_transfer -r capture.bin -f 433920000` |
+| `LimeUtil` | LimeSDR info | `LimeUtil --find` |
+| `SoapySDRUtil` | Universal SDR API | `SoapySDRUtil --find` |
+
+### Verify Installation
+
+```bash
+export LD_LIBRARY_PATH="$HOME/bin/lib:$LD_LIBRARY_PATH"
+
+# Test RTL-SDR
+rtl_test -t
+
+# Test HackRF
+hackrf_info
+
+# Test LimeSDR
+LimeUtil --find
+
+# Universal check
+SoapySDRUtil --find
+```
+
+## RayHunter IMSI Catcher Detection (Optional)
+
+SIGINT-Deck integrates with EFF's RayHunter for detecting IMSI catchers (Stingrays).
+
+### Requirements
+
+- Pixel 3a, 3a XL, 4a, or 4a 5G with RayHunter installed
+- USB data cable
+
+### Setup
+
+```bash
+# Install ADB (Android Debug Bridge)
+~/sigint-deck/scripts/install-adb.sh
+
+# Connect phone and enable USB debugging
+adb devices  # Should show your device
+
+# Enable and start RayHunter ADB service
+systemctl --user enable --now rayhunter-adb
+```
+
+### How It Works
+
+1. RayHunter runs on the Pixel phone, monitoring cellular baseband
+2. SIGINT-Deck polls RayHunter via ADB every 5 seconds
+3. If IMSI catcher activity detected, a distinct siren alert plays
+4. The "🐳 IMSI" tab shows real-time status
+
+### RayHunter Analyzers
+
+| Analyzer | Detection |
+|----------|-----------|
+| IMSI Identity Request | Cell tower requesting your IMSI |
+| 2G Downgrade | Forced downgrade to insecure 2G |
+| LTE SIB 6/7 Downgrade | Suspicious broadcast of 2G/3G priorities |
 
 ## Legal Notice
 
