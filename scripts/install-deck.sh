@@ -55,7 +55,8 @@ if command -v pacman &>/dev/null; then
         python \
         curl \
         git \
-        usbutils 2>/dev/null || true
+        usbutils \
+        android-tools 2>/dev/null || true
 fi
 
 # ============================================

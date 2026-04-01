@@ -226,6 +226,35 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/legal", web::get().to(get_legal))
             .route("/legal/accept", web::post().to(accept_legal))
             .route("/legal/status", web::get().to(legal_status))
+
+            // Waterfall analysis
+            .route("/sdr/waterfall/data", web::get().to(get_waterfall_data))
+            .route("/sdr/waterfall/snapshot", web::post().to(save_waterfall_snapshot))
+
+            // Signal fingerprinting
+            .route("/sdr/fingerprint/capture", web::post().to(capture_signal_fingerprint))
+            .route("/sdr/fingerprint/signatures", web::get().to(get_signatures))
+            .route("/sdr/fingerprint/signatures/{id}", web::get().to(get_signature_detail))
+
+            // Intel feed / summary chat
+            .route("/intel/feed", web::get().to(get_intel_feed))
+            .route("/intel/summary", web::post().to(generate_intel_summary))
+
+            // TTS alerts
+            .route("/alerts/tts/announce", web::post().to(tts_announce))
+            .route("/alerts/tts/config", web::get().to(get_tts_alert_config))
+            .route("/alerts/tts/config", web::post().to(set_tts_alert_config))
+
+            // Flipper Zero
+            .route("/flipper/status", web::get().to(get_flipper_status))
+            .route("/flipper/devices", web::get().to(get_flipper_devices))
+            .route("/flipper/execute", web::post().to(execute_flipper_action))
+            .route("/flipper/subghz/capture", web::post().to(flipper_subghz_capture))
+            .route("/flipper/subghz/replay", web::post().to(flipper_subghz_replay))
+
+            // WiFi device filter for TSCM/drone scans
+            .route("/sdr/wifi-filter", web::get().to(get_wifi_filter))
+            .route("/sdr/wifi-filter", web::post().to(set_wifi_filter))
     );
 }
 
@@ -2951,6 +2980,8 @@ async fn scan_drones() -> impl Responder {
 }
 
 fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> Option<serde_json::Value> {
+    let wifi_filter_on = *WIFI_FILTER_ENABLED.lock().unwrap();
+
     // Find strongest signal in the band
     let mut max_power = f64::NEG_INFINITY;
     let mut max_freq = 0u64;
@@ -2968,6 +2999,10 @@ fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> 
             for (i, db_str) in parts[6..].iter().enumerate() {
                 if let Ok(power_db) = db_str.trim().parse::<f64>() {
                     let freq = hz_low + (i as u64 * hz_bin);
+                    // Skip known WiFi channel frequencies and local adapter emissions
+                    if wifi_filter_on && (is_wifi_channel_center(freq) || is_local_wifi_emission(freq)) {
+                        continue;
+                    }
                     if freq >= start_hz && freq <= end_hz && power_db > max_power {
                         max_power = power_db;
                         max_freq = freq;
@@ -4722,6 +4757,13 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
 
     if raw_hits.is_empty() { return; }
 
+    // Phase 1.5: WiFi filter - remove hits from local adapters and known WiFi bands
+    let wifi_filter_on = *WIFI_FILTER_ENABLED.lock().unwrap();
+    if wifi_filter_on {
+        raw_hits.retain(|hit| !is_wifi_frequency(hit.freq_hz) && !is_local_wifi_emission(hit.freq_hz));
+    }
+    if raw_hits.is_empty() { return; }
+
     // Phase 2: Group hits by frequency (within tolerance) and find best power per group
     struct FreqGroup { center_hz: u64, peak_hz: u64, peak_db: f64 }
     let mut groups: Vec<FreqGroup> = Vec::new();
@@ -4960,4 +5002,835 @@ async fn legal_status() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "accepted": accepted
     }))
+}
+
+// ============================================
+// Waterfall Analysis
+// ============================================
+
+#[derive(Deserialize)]
+struct WaterfallQuery {
+    start_mhz: Option<f64>,
+    end_mhz: Option<f64>,
+    step_khz: Option<f64>,
+}
+
+async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder {
+    let start_mhz = query.start_mhz.unwrap_or(433.0);
+    let end_mhz = query.end_mhz.unwrap_or(434.0);
+    let step_khz = query.step_khz.unwrap_or(25.0);
+
+    let caps = crate::sdr::SdrCapabilities::detect();
+    let (cmd, args) = if caps.hackrf {
+        ("hackrf_sweep".to_string(), vec![
+            "-f".to_string(), format!("{}:{}", start_mhz as u64, end_mhz as u64),
+            "-w".to_string(), format!("{}", (step_khz * 1000.0) as u64),
+            "-1".to_string(),
+        ])
+    } else if caps.rtl_power {
+        let step_str = if step_khz >= 1000.0 {
+            format!("{}M", step_khz / 1000.0)
+        } else {
+            format!("{}k", step_khz)
+        };
+        ("rtl_power".to_string(), vec![
+            "-f".to_string(), format!("{}M:{}M:{}", start_mhz, end_mhz, step_str),
+            "-1".to_string(),
+            "-i".to_string(), "1".to_string(),
+        ])
+    } else {
+        return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "error": "No SDR hardware available for waterfall scan"
+        }));
+    };
+
+    match tokio::process::Command::new(&cmd)
+        .args(&args)
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut frequencies: Vec<f64> = Vec::new();
+            let mut powers: Vec<f64> = Vec::new();
+
+            for line in stdout.lines() {
+                if line.trim().is_empty() || line.starts_with('#') { continue; }
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+
+                if cmd.contains("hackrf") && parts.len() >= 6 {
+                    let base_freq: f64 = parts[2].parse().unwrap_or(0.0);
+                    let bin_width: f64 = parts[4].parse().unwrap_or(1.0);
+                    for (i, p) in parts[6..].iter().enumerate() {
+                        if let Ok(power) = p.parse::<f64>() {
+                            frequencies.push((base_freq + i as f64 * bin_width) / 1_000_000.0);
+                            powers.push(power);
+                        }
+                    }
+                } else if parts.len() >= 7 {
+                    // rtl_power CSV: date, time, freq_low, freq_high, step, samples, db1, db2, ...
+                    let freq_low: f64 = parts[2].parse().unwrap_or(0.0);
+                    let freq_step: f64 = parts[4].parse().unwrap_or(1.0);
+                    for (i, p) in parts[6..].iter().enumerate() {
+                        if let Ok(power) = p.parse::<f64>() {
+                            frequencies.push((freq_low + i as f64 * freq_step) / 1_000_000.0);
+                            powers.push(power);
+                        }
+                    }
+                }
+            }
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "frequencies": frequencies,
+                "powers": powers,
+                "timestamp": chrono::Utc::now().timestamp(),
+                "start_mhz": start_mhz,
+                "end_mhz": end_mhz,
+                "step_khz": step_khz
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Scan failed: {}", e)
+        }))
+    }
+}
+
+#[derive(Deserialize)]
+struct SnapshotRequest {
+    image_data: String,
+    frequency_range: Option<String>,
+    notes: Option<String>,
+}
+
+async fn save_waterfall_snapshot(body: web::Json<SnapshotRequest>) -> impl Responder {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let snapshots_dir = format!("{}/sigint-deck/snapshots", home);
+    // Try other install dirs too
+    let snapshots_dir = ["sigint-deck", "sigint-pi", "sigint-clockworkpi"]
+        .iter()
+        .map(|d| format!("{}/{}/snapshots", home, d))
+        .find(|d| {
+            std::fs::create_dir_all(d).is_ok();
+            std::path::Path::new(d).exists()
+        })
+        .unwrap_or(snapshots_dir);
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("{}/waterfall_{}.png", snapshots_dir, timestamp);
+
+    // Decode base64 PNG
+    let image_data = body.image_data.replace("data:image/png;base64,", "");
+    match base64_decode(&image_data) {
+        Ok(bytes) => {
+            if let Err(e) = std::fs::write(&filename, &bytes) {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": format!("Failed to save: {}", e)
+                }));
+            }
+
+            // Save metadata alongside
+            let meta_file = filename.replace(".png", ".json");
+            let meta = serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "frequency_range": body.frequency_range,
+                "notes": body.notes,
+                "file": filename,
+            });
+            let _ = std::fs::write(&meta_file, serde_json::to_string_pretty(&meta).unwrap_or_default());
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "saved": true,
+                "path": filename,
+            }))
+        }
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Invalid base64: {}", e)
+        }))
+    }
+}
+
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(input)
+        .map_err(|e| e.to_string())
+}
+
+// ============================================
+// Signal Fingerprinting
+// ============================================
+
+#[derive(Deserialize)]
+struct FingerprintCaptureRequest {
+    frequency_mhz: f64,
+    sample_rate: Option<u32>,
+    duration_ms: Option<u64>,
+    label: Option<String>,
+}
+
+async fn capture_signal_fingerprint(body: web::Json<FingerprintCaptureRequest>) -> impl Responder {
+    let freq_hz = (body.frequency_mhz * 1_000_000.0) as u64;
+    let sample_rate = body.sample_rate.unwrap_or(2_400_000);
+    let duration_ms = body.duration_ms.unwrap_or(500);
+    let samples = (sample_rate as u64 * duration_ms) / 1000;
+
+    let output_file = format!("/tmp/sigint_fingerprint_{}.bin", chrono::Utc::now().timestamp_millis());
+
+    let result = tokio::process::Command::new("rtl_sdr")
+        .args(&[
+            "-f", &freq_hz.to_string(),
+            "-s", &sample_rate.to_string(),
+            "-n", &(samples * 2).to_string(), // IQ pairs
+            &output_file,
+        ])
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if std::path::Path::new(&output_file).exists() => {
+            // Read raw IQ data and extract features
+            let iq_data = std::fs::read(&output_file).unwrap_or_default();
+            let features = extract_signal_features(&iq_data, sample_rate);
+
+            // Save signature
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let sig_dir = format!("{}/sigint-deck/signatures", home);
+            let _ = std::fs::create_dir_all(&sig_dir);
+            let sig_id = format!("sig_{}", chrono::Utc::now().timestamp_millis());
+            let sig_file = format!("{}/{}.json", sig_dir, sig_id);
+
+            let signature = serde_json::json!({
+                "id": sig_id,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "frequency_mhz": body.frequency_mhz,
+                "sample_rate": sample_rate,
+                "duration_ms": duration_ms,
+                "label": body.label,
+                "features": features,
+                "raw_file": output_file,
+            });
+            let _ = std::fs::write(&sig_file, serde_json::to_string_pretty(&signature).unwrap_or_default());
+
+            HttpResponse::Ok().json(signature)
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Capture failed: {}", stderr)
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("rtl_sdr not available: {}", e)
+        }))
+    }
+}
+
+fn extract_signal_features(iq_data: &[u8], sample_rate: u32) -> serde_json::Value {
+    if iq_data.len() < 4 { return serde_json::json!({}); }
+
+    // Convert unsigned 8-bit IQ to float pairs
+    let samples: Vec<(f64, f64)> = iq_data.chunks(2)
+        .map(|chunk| {
+            let i = (chunk[0] as f64 - 127.5) / 127.5;
+            let q = if chunk.len() > 1 { (chunk[1] as f64 - 127.5) / 127.5 } else { 0.0 };
+            (i, q)
+        })
+        .collect();
+
+    let n = samples.len() as f64;
+
+    // Power statistics
+    let powers: Vec<f64> = samples.iter().map(|(i, q)| i * i + q * q).collect();
+    let power_mean = powers.iter().sum::<f64>() / n;
+    let power_max = powers.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let power_min = powers.iter().cloned().fold(f64::INFINITY, f64::min);
+    let power_std = (powers.iter().map(|p| (p - power_mean).powi(2)).sum::<f64>() / n).sqrt();
+
+    // I/Q statistics
+    let i_vals: Vec<f64> = samples.iter().map(|(i, _)| *i).collect();
+    let q_vals: Vec<f64> = samples.iter().map(|(_, q)| *q).collect();
+    let i_mean = i_vals.iter().sum::<f64>() / n;
+    let q_mean = q_vals.iter().sum::<f64>() / n;
+    let i_std = (i_vals.iter().map(|v| (v - i_mean).powi(2)).sum::<f64>() / n).sqrt();
+    let q_std = (q_vals.iter().map(|v| (v - q_mean).powi(2)).sum::<f64>() / n).sqrt();
+
+    // Phase statistics
+    let phases: Vec<f64> = samples.iter().map(|(i, q)| q.atan2(*i)).collect();
+    let phase_mean = phases.iter().sum::<f64>() / n;
+    let phase_std = (phases.iter().map(|p| (p - phase_mean).powi(2)).sum::<f64>() / n).sqrt();
+
+    // Phase derivative (instantaneous frequency estimate)
+    let phase_diffs: Vec<f64> = phases.windows(2).map(|w| {
+        let mut d = w[1] - w[0];
+        if d > std::f64::consts::PI { d -= 2.0 * std::f64::consts::PI; }
+        if d < -std::f64::consts::PI { d += 2.0 * std::f64::consts::PI; }
+        d
+    }).collect();
+    let phase_diff_mean = if phase_diffs.is_empty() { 0.0 } else {
+        phase_diffs.iter().sum::<f64>() / phase_diffs.len() as f64
+    };
+    let phase_diff_std = if phase_diffs.is_empty() { 0.0 } else {
+        (phase_diffs.iter().map(|d| (d - phase_diff_mean).powi(2)).sum::<f64>() / phase_diffs.len() as f64).sqrt()
+    };
+
+    // Simple FFT power estimate (magnitude spectrum via DFT of first 1024 samples)
+    let fft_size = 1024.min(samples.len());
+    let mut fft_magnitudes: Vec<f64> = Vec::with_capacity(fft_size);
+    for k in 0..fft_size {
+        let mut re = 0.0f64;
+        let mut im = 0.0f64;
+        for (n_idx, (i, q)) in samples[..fft_size].iter().enumerate() {
+            let angle = -2.0 * std::f64::consts::PI * k as f64 * n_idx as f64 / fft_size as f64;
+            re += i * angle.cos() - q * angle.sin();
+            im += i * angle.sin() + q * angle.cos();
+        }
+        fft_magnitudes.push((re * re + im * im).sqrt() / fft_size as f64);
+    }
+
+    let fft_max = fft_magnitudes.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let fft_mean = fft_magnitudes.iter().sum::<f64>() / fft_magnitudes.len() as f64;
+    let fft_std = (fft_magnitudes.iter().map(|m| (m - fft_mean).powi(2)).sum::<f64>() / fft_magnitudes.len() as f64).sqrt();
+    let fft_peak_idx = fft_magnitudes.iter().enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+
+    // Bandwidth estimate: bins above -20dB from peak
+    let threshold = fft_max * 0.01; // -20dB
+    let bins_above = fft_magnitudes.iter().filter(|&&m| m > threshold).count();
+    let bandwidth_hz = bins_above as f64 * sample_rate as f64 / fft_size as f64;
+
+    serde_json::json!({
+        "power_mean": power_mean,
+        "power_std": power_std,
+        "power_max": power_max,
+        "power_min": power_min,
+        "i_mean": i_mean,
+        "i_std": i_std,
+        "q_mean": q_mean,
+        "q_std": q_std,
+        "phase_mean": phase_mean,
+        "phase_std": phase_std,
+        "phase_diff_mean": phase_diff_mean,
+        "phase_diff_std": phase_diff_std,
+        "fft_max": fft_max,
+        "fft_mean": fft_mean,
+        "fft_std": fft_std,
+        "fft_peak_bin": fft_peak_idx,
+        "bandwidth_hz": bandwidth_hz,
+        "num_samples": samples.len(),
+        "sample_rate": sample_rate,
+    })
+}
+
+async fn get_signatures() -> impl Responder {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let mut signatures = Vec::new();
+
+    for dir_name in &["sigint-deck", "sigint-pi", "sigint-clockworkpi"] {
+        let sig_dir = format!("{}/{}/signatures", home, dir_name);
+        if let Ok(entries) = std::fs::read_dir(&sig_dir) {
+            for entry in entries.flatten() {
+                if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if let Ok(sig) = serde_json::from_str::<serde_json::Value>(&content) {
+                            signatures.push(sig);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    signatures.sort_by(|a, b| {
+        let ta = a.get("timestamp").and_then(|t| t.as_str()).unwrap_or("");
+        let tb = b.get("timestamp").and_then(|t| t.as_str()).unwrap_or("");
+        tb.cmp(ta)
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "signatures": signatures,
+        "count": signatures.len()
+    }))
+}
+
+async fn get_signature_detail(path: web::Path<String>) -> impl Responder {
+    let sig_id = path.into_inner();
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+
+    for dir_name in &["sigint-deck", "sigint-pi", "sigint-clockworkpi"] {
+        let sig_file = format!("{}/{}/signatures/{}.json", home, dir_name, sig_id);
+        if let Ok(content) = std::fs::read_to_string(&sig_file) {
+            if let Ok(sig) = serde_json::from_str::<serde_json::Value>(&content) {
+                return HttpResponse::Ok().json(sig);
+            }
+        }
+    }
+
+    HttpResponse::NotFound().json(serde_json::json!({"error": "Signature not found"}))
+}
+
+// ============================================
+// Intel Feed / Summary Chat
+// ============================================
+
+static INTEL_FEED: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+async fn get_intel_feed() -> impl Responder {
+    let feed = INTEL_FEED.lock().unwrap();
+    HttpResponse::Ok().json(serde_json::json!({
+        "entries": &*feed,
+        "count": feed.len()
+    }))
+}
+
+#[derive(Deserialize)]
+struct IntelSummaryRequest {
+    context: Option<String>,
+    push_to: Option<Vec<String>>,
+}
+
+async fn generate_intel_summary(
+    body: web::Json<IntelSummaryRequest>,
+    config: web::Data<crate::config::Config>,
+) -> impl Responder {
+    // Gather current scan state for the summary
+    let sdr_caps = crate::sdr::SdrCapabilities::detect();
+    let tscm_running = *TSCM_RUNNING.lock().unwrap();
+    let tscm_threats_count = TSCM_THREATS.lock().unwrap().len();
+    let tscm_sweep_count = *TSCM_SWEEP_COUNT.lock().unwrap();
+    let rtl433_devices = RTL433_DEVICES.lock().unwrap().clone();
+
+    let scan_context = format!(
+        "SDR: rtl_sdr={}, hackrf={}, rtl_433={}. \
+         RTL-433 devices detected: {}. \
+         TSCM: running={}, threats={}, sweeps={}. \
+         {}",
+        sdr_caps.rtl_sdr, sdr_caps.hackrf, sdr_caps.rtl_433,
+        rtl433_devices.len(),
+        tscm_running, tscm_threats_count, tscm_sweep_count,
+        body.context.as_deref().unwrap_or("")
+    );
+
+    // Try LLM for summary
+    let tscm_summary = if tscm_threats_count > 0 {
+        format!("TSCM: {} threats detected across {} sweeps.", tscm_threats_count, tscm_sweep_count)
+    } else if tscm_sweep_count > 0 {
+        format!("TSCM: {} sweeps, environment clear.", tscm_sweep_count)
+    } else {
+        "TSCM: Not active.".to_string()
+    };
+
+    let llm_config = read_llm_config_from_disk();
+    let summary = if let Some(ref llm) = llm_config {
+        if llm.enabled {
+            let prompt = format!(
+                "You are a SIGINT analyst assistant. Provide a brief operational summary (2-3 sentences) of the current scan environment. Be concise and factual.\n\nCurrent state:\n{}",
+                scan_context
+            );
+            match call_llm(llm, &prompt).await {
+                Ok(text) => text,
+                Err(_) => format!("RF environment scan active. {} devices on ISM bands. {}", rtl433_devices.len(), tscm_summary),
+            }
+        } else {
+            format!("RF environment scan active. {} devices on ISM bands. {}", rtl433_devices.len(), tscm_summary)
+        }
+    } else {
+        format!("RF environment scan active. {} devices on ISM bands. {}", rtl433_devices.len(), tscm_summary)
+    };
+
+    // Add to intel feed
+    let entry = serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "type": "summary",
+        "message": summary,
+        "context": scan_context,
+    });
+    {
+        let mut feed = INTEL_FEED.lock().unwrap();
+        feed.insert(0, entry.clone());
+        if feed.len() > 200 { feed.truncate(200); }
+    }
+
+    // Push to configured channels
+    if let Some(ref channels) = body.push_to {
+        for channel in channels {
+            match channel.as_str() {
+                "tts" => {
+                    let _ = speak_summary(&summary).await;
+                }
+                _ => {} // telegram, mqtt, signal handled by alert system
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(entry)
+}
+
+
+
+async fn call_llm(config: &crate::config::LlmConfig, prompt: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Some(ref key) = config.api_key {
+        headers.insert("Authorization", format!("Bearer {}", key).parse().map_err(|e: reqwest::header::InvalidHeaderValue| e.to_string())?);
+    }
+
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": config.max_tokens,
+        "temperature": 0.3,
+    });
+
+    let endpoint = format!("{}/chat/completions", config.endpoint.trim_end_matches('/'));
+    let resp = client.post(&endpoint)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    json.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No content in LLM response".to_string())
+}
+
+// ============================================
+// TTS Alerts
+// ============================================
+
+static TTS_ALERT_ENABLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+
+#[derive(Deserialize)]
+struct TtsAnnounceRequest {
+    message: String,
+}
+
+async fn tts_announce(body: web::Json<TtsAnnounceRequest>) -> impl Responder {
+    match speak_summary(&body.message).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"announced": true})),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e})),
+    }
+}
+
+async fn speak_summary(text: &str) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let piper_candidates = [
+        format!("{}/bin/piper", home),
+        "/usr/local/bin/piper".to_string(),
+        "/usr/bin/piper".to_string(),
+        "piper".to_string(),
+    ];
+    let piper_cmd = piper_candidates.iter()
+        .find(|p| std::path::Path::new(p).exists() || !p.contains('/'))
+        .cloned()
+        .unwrap_or_else(|| "piper".to_string());
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let model_path = ["sigint-deck", "sigint-pi", "sigint-clockworkpi"]
+        .iter()
+        .map(|d| format!("{}/{}/models/piper/en_US-lessac-medium.onnx", home, d))
+        .find(|p| std::path::Path::new(p).exists())
+        .unwrap_or_else(|| "en_US-lessac-medium".to_string());
+
+    let output_path = "/tmp/sigint-tts-alert.wav";
+
+    let mut child = std::process::Command::new(&piper_cmd)
+        .args(["--model", &model_path, "--output_file", output_path])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Piper not available: {}", e))?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    child.wait().map_err(|e| e.to_string())?;
+
+    // Play via aplay or paplay
+    let _ = std::process::Command::new("aplay")
+        .arg(output_path)
+        .spawn()
+        .or_else(|_| std::process::Command::new("paplay").arg(output_path).spawn());
+
+    Ok(())
+}
+
+async fn get_tts_alert_config() -> impl Responder {
+    let enabled = *TTS_ALERT_ENABLED.lock().unwrap();
+    HttpResponse::Ok().json(serde_json::json!({
+        "enabled": enabled,
+        "voice_model": "en_US-lessac-medium",
+        "events": ["new_contact", "threat_detected", "tscm_alert", "drone_detected"],
+    }))
+}
+
+#[derive(Deserialize)]
+struct TtsAlertConfigRequest {
+    enabled: Option<bool>,
+}
+
+async fn set_tts_alert_config(body: web::Json<TtsAlertConfigRequest>) -> impl Responder {
+    if let Some(enabled) = body.enabled {
+        *TTS_ALERT_ENABLED.lock().unwrap() = enabled;
+    }
+    get_tts_alert_config().await
+}
+
+// ============================================
+// Flipper Zero
+// ============================================
+
+async fn get_flipper_status() -> impl Responder {
+    #[cfg(feature = "flipper")]
+    {
+        let devices = crate::flipper::serial::FlipperSerial::detect_devices();
+        let connected = !devices.is_empty();
+        HttpResponse::Ok().json(serde_json::json!({
+            "available": true,
+            "connected": connected,
+            "devices": devices,
+            "feature_enabled": true,
+        }))
+    }
+    #[cfg(not(feature = "flipper"))]
+    {
+        // Without serialport crate, try detecting via USB VID/PID
+        let devices = detect_flipper_usb();
+        HttpResponse::Ok().json(serde_json::json!({
+            "available": !devices.is_empty(),
+            "connected": !devices.is_empty(),
+            "devices": devices,
+            "feature_enabled": false,
+            "hint": "Rebuild with --features flipper for full Flipper Zero support"
+        }))
+    }
+}
+
+fn detect_flipper_usb() -> Vec<String> {
+    // Check lsusb for Flipper Zero VID:PID (0483:5740)
+    if let Ok(output) = std::process::Command::new("lsusb").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.lines()
+            .filter(|l| l.contains("0483:5740") || l.to_lowercase().contains("flipper"))
+            .map(|l| l.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+async fn get_flipper_devices() -> impl Responder {
+    get_flipper_status().await
+}
+
+#[derive(Deserialize)]
+struct FlipperActionRequest {
+    action: String,
+    args: Option<serde_json::Value>,
+}
+
+async fn execute_flipper_action(body: web::Json<FlipperActionRequest>) -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "not_implemented",
+        "action": body.action,
+        "hint": "Flipper Zero command execution requires --features flipper build flag"
+    }))
+}
+
+#[derive(Deserialize)]
+struct SubGhzCaptureRequest {
+    frequency_mhz: Option<f64>,
+    duration_seconds: Option<u64>,
+}
+
+async fn flipper_subghz_capture(body: web::Json<SubGhzCaptureRequest>) -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "not_implemented",
+        "hint": "SubGHz capture requires Flipper Zero connected via USB and --features flipper"
+    }))
+}
+
+async fn flipper_subghz_replay(_body: web::Json<serde_json::Value>) -> impl Responder {
+    HttpResponse::Forbidden().json(serde_json::json!({
+        "error": "RF transmission is disabled for safety",
+        "hint": "SubGHz replay/transmission is not enabled in this build. Only passive reception is supported."
+    }))
+}
+
+// ============================================
+// WiFi Device Filter for TSCM/Drone Scans
+// ============================================
+
+static WIFI_FILTER_ENABLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(true));
+static WIFI_FILTER_EXCLUDE_KNOWN: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(true));
+
+async fn get_wifi_filter() -> impl Responder {
+    let enabled = *WIFI_FILTER_ENABLED.lock().unwrap();
+    let exclude_known = *WIFI_FILTER_EXCLUDE_KNOWN.lock().unwrap();
+    let active_interfaces = detect_active_wifi_interfaces();
+    HttpResponse::Ok().json(serde_json::json!({
+        "enabled": enabled,
+        "exclude_known_wifi": exclude_known,
+        "description": "When enabled, TSCM sweeps and drone detection filter out known WiFi signals in the 2.4 GHz and 5 GHz bands to reduce false positives. This includes signals from your own WiFi adapters.",
+        "active_wifi_interfaces": active_interfaces,
+        "wifi_bands_filtered": [
+            {"band": "2.4 GHz", "range_mhz": [2400, 2500], "channels": "1-14"},
+            {"band": "5 GHz", "range_mhz": [5150, 5875], "channels": "32-177"},
+        ],
+        "filter_rules": [
+            "Exclude signals matching known WiFi channel center frequencies (+/- 11 MHz)",
+            "Exclude signals from local WiFi adapters (managed + monitor mode interfaces)",
+            "Non-WiFi signals in these bands (e.g. Bluetooth, ZigBee, drones) are NOT filtered",
+            "SDR and WiFi adapters can operate simultaneously - no wired connection required",
+        ],
+        "notes": [
+            "Your WiFi adapter is a local RF transmitter that the SDR will pick up",
+            "Monitor mode adapters also emit probe requests and are visible to the SDR",
+            "Disabling the filter shows ALL signals including your own WiFi infrastructure",
+        ]
+    }))
+}
+
+#[derive(Deserialize)]
+struct WifiFilterRequest {
+    enabled: Option<bool>,
+    exclude_known_wifi: Option<bool>,
+}
+
+/// Detect active WiFi interfaces and their channels via `iw dev`
+fn detect_active_wifi_interfaces() -> Vec<serde_json::Value> {
+    let output = match std::process::Command::new("iw").arg("dev").output() {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+        Err(_) => return Vec::new(),
+    };
+
+    let mut interfaces = Vec::new();
+    let mut current: Option<serde_json::Map<String, serde_json::Value>> = None;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Interface ") {
+            if let Some(iface) = current.take() {
+                interfaces.push(serde_json::Value::Object(iface));
+            }
+            let mut map = serde_json::Map::new();
+            map.insert("name".into(), serde_json::Value::String(trimmed.strip_prefix("Interface ").unwrap_or("").to_string()));
+            current = Some(map);
+        } else if let Some(ref mut iface) = current {
+            if trimmed.starts_with("type ") {
+                iface.insert("mode".into(), serde_json::Value::String(trimmed.strip_prefix("type ").unwrap_or("").to_string()));
+            } else if trimmed.starts_with("channel ") {
+                // "channel 40 (5200 MHz), width: 160 MHz, center1: 5250 MHz"
+                iface.insert("channel_info".into(), serde_json::Value::String(trimmed.to_string()));
+                // Extract center frequency
+                if let Some(mhz_str) = trimmed.split('(').nth(1).and_then(|s| s.split(" MHz").next()) {
+                    if let Ok(freq) = mhz_str.trim().parse::<f64>() {
+                        iface.insert("center_freq_mhz".into(), serde_json::json!(freq));
+                    }
+                }
+                // Extract width
+                if let Some(width_str) = trimmed.split("width: ").nth(1).and_then(|s| s.split(" MHz").next()) {
+                    if let Ok(width) = width_str.trim().parse::<f64>() {
+                        iface.insert("bandwidth_mhz".into(), serde_json::json!(width));
+                        // Compute affected range
+                        if let Some(freq) = iface.get("center_freq_mhz").and_then(|v| v.as_f64()) {
+                            iface.insert("affected_range_mhz".into(), serde_json::json!([freq - width / 2.0, freq + width / 2.0]));
+                        }
+                    }
+                }
+            } else if trimmed.starts_with("ssid ") {
+                iface.insert("ssid".into(), serde_json::Value::String(trimmed.strip_prefix("ssid ").unwrap_or("").to_string()));
+            }
+        }
+    }
+    if let Some(iface) = current.take() {
+        interfaces.push(serde_json::Value::Object(iface));
+    }
+
+    interfaces
+}
+
+/// Get the local WiFi adapters' active frequency ranges to filter from SDR scans.
+/// Returns a list of (center_mhz, bandwidth_mhz) for all active interfaces.
+fn get_local_wifi_ranges() -> Vec<(f64, f64)> {
+    detect_active_wifi_interfaces().iter().filter_map(|iface| {
+        let center = iface.get("center_freq_mhz")?.as_f64()?;
+        let bw = iface.get("bandwidth_mhz").and_then(|v| v.as_f64()).unwrap_or(20.0);
+        Some((center, bw))
+    }).collect()
+}
+
+/// Check if a frequency (in Hz) is within range of a local WiFi adapter's active channel
+fn is_local_wifi_emission(freq_hz: u64) -> bool {
+    let freq_mhz = freq_hz as f64 / 1_000_000.0;
+    for (center, bw) in get_local_wifi_ranges() {
+        let margin = bw / 2.0 + 5.0; // +5 MHz margin for spectral leakage
+        if (freq_mhz - center).abs() < margin {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a frequency (in Hz) is close to a WiFi channel center (+/- 11 MHz for 20 MHz channels)
+/// Used for drone detection to skip known WiFi signals
+fn is_wifi_channel_center(freq_hz: u64) -> bool {
+    let freq_mhz = freq_hz as f64 / 1_000_000.0;
+    // 2.4 GHz channel centers (1-14): 2412, 2417, 2422, ..., 2484
+    let wifi_24_centers: &[f64] = &[
+        2412.0, 2417.0, 2422.0, 2427.0, 2432.0, 2437.0, 2442.0,
+        2447.0, 2452.0, 2457.0, 2462.0, 2467.0, 2472.0, 2484.0,
+    ];
+    for &center in wifi_24_centers {
+        if (freq_mhz - center).abs() < 11.0 { return true; }
+    }
+    // 5 GHz channel centers (20 MHz channels)
+    let wifi_5_centers: &[f64] = &[
+        5180.0, 5200.0, 5220.0, 5240.0, 5260.0, 5280.0, 5300.0, 5320.0,
+        5500.0, 5520.0, 5540.0, 5560.0, 5580.0, 5600.0, 5620.0, 5640.0,
+        5660.0, 5680.0, 5700.0, 5745.0, 5765.0, 5785.0, 5805.0, 5825.0,
+    ];
+    for &center in wifi_5_centers {
+        if (freq_mhz - center).abs() < 11.0 { return true; }
+    }
+    false
+}
+
+/// Check if a frequency (in Hz) falls within a standard WiFi channel
+/// 2.4 GHz: 2401-2495 MHz (channels 1-14)
+/// 5 GHz: 5150-5875 MHz (U-NII bands)
+fn is_wifi_frequency(freq_hz: u64) -> bool {
+    let freq_mhz = freq_hz as f64 / 1_000_000.0;
+    // 2.4 GHz band: 2400-2500 MHz with 10 MHz margin for channel edges
+    if (2390.0..=2510.0).contains(&freq_mhz) { return true; }
+    // 5 GHz U-NII-1: 5150-5250 MHz
+    if (5140.0..=5260.0).contains(&freq_mhz) { return true; }
+    // 5 GHz U-NII-2: 5250-5350 MHz
+    if (5240.0..=5360.0).contains(&freq_mhz) { return true; }
+    // 5 GHz U-NII-2 Extended: 5470-5725 MHz
+    if (5460.0..=5735.0).contains(&freq_mhz) { return true; }
+    // 5 GHz U-NII-3: 5725-5850 MHz
+    if (5715.0..=5860.0).contains(&freq_mhz) { return true; }
+    false
+}
+
+async fn set_wifi_filter(body: web::Json<WifiFilterRequest>) -> impl Responder {
+    if let Some(enabled) = body.enabled {
+        *WIFI_FILTER_ENABLED.lock().unwrap() = enabled;
+    }
+    if let Some(exclude) = body.exclude_known_wifi {
+        *WIFI_FILTER_EXCLUDE_KNOWN.lock().unwrap() = exclude;
+    }
+    get_wifi_filter().await
 }

@@ -1751,6 +1751,12 @@
         <button class="tab-btn" data-tab="tscm" tabindex="0">
             🔍 TSCM <span class="badge-count" id="tscmBadge">--</span>
         </button>
+        <button class="tab-btn" data-tab="flipper" tabindex="0">
+            🐬 Flipper <span class="badge-count" id="flipperBadge">--</span>
+        </button>
+        <button class="tab-btn" data-tab="intel" tabindex="0">
+            🧠 Intel Feed
+        </button>
         <button class="tab-btn" data-tab="settings" tabindex="0">
             ⚙️ Settings
         </button>
@@ -2174,6 +2180,10 @@
                     </label>
                     <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start Sweep</button>
                     <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
+                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;margin-left:0.5rem;" title="Filter out known WiFi signals in 2.4/5 GHz bands to reduce false positives">
+                        <input type="checkbox" id="wifiFilterToggle" checked onchange="toggleWifiFilter(this.checked)"> Filter WiFi
+                    </label>
+                    <a href="/waterfall.html" class="action-btn" style="text-decoration:none;font-size:0.85rem;" title="Open Waterfall Analyzer">📊 Waterfall</a>
                 </div>
                 
                 <!-- Progress -->
@@ -2323,12 +2333,89 @@
         </div>
     </div>
 
+    <!-- Flipper Zero Tab -->
+    <div class="tab-content" id="tab-flipper">
+        <div class="sdr-panel">
+            <div class="sdr-header">
+                <div class="sdr-logo">🐬</div>
+                <div class="sdr-title">
+                    <h3>Flipper Zero</h3>
+                    <span class="sdr-subtitle">USB Serial Interface</span>
+                </div>
+                <button class="action-btn" onclick="refreshFlipperStatus()">🔄 Refresh</button>
+            </div>
+
+            <div id="flipperStatus" class="sdr-section" style="margin-top: 1rem;">
+                <div class="sdr-section-header"><h4>📡 Connection Status</h4></div>
+                <div id="flipperStatusContent" style="padding: 1rem;">
+                    <div class="status-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                        <div class="status-item"><span class="status-label">Status:</span> <span id="flipperConnStatus" class="status-value">Checking...</span></div>
+                        <div class="status-item"><span class="status-label">Port:</span> <span id="flipperPort" class="status-value">--</span></div>
+                        <div class="status-item"><span class="status-label">Firmware:</span> <span id="flipperFw" class="status-value">--</span></div>
+                        <div class="status-item"><span class="status-label">Battery:</span> <span id="flipperBattery" class="status-value">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sdr-section" style="margin-top: 1rem;">
+                <div class="sdr-section-header"><h4>📻 SubGHz (Read-Only)</h4></div>
+                <div style="padding: 1rem;">
+                    <p style="color:var(--text-secondary);font-size:0.85rem;">Capture SubGHz signals from the Flipper's radio. Transmission is disabled for safety.</p>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                        <button class="action-btn" onclick="flipperSubGhzCapture()">📡 Capture Signal</button>
+                    </div>
+                    <div id="flipperSubGhzResults" style="margin-top: 1rem; font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+
+            <div class="sdr-section" style="margin-top: 1rem;">
+                <div class="sdr-section-header"><h4>📋 Device Info</h4></div>
+                <div id="flipperDeviceInfo" style="padding: 1rem; font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">
+                    Connect a Flipper Zero via USB to view device details.
+                </div>
+            </div>
+
+            <div style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-yellow); border-radius: 8px; padding: 1rem; margin-top: 1rem;">
+                <strong>⚠️ Note:</strong> RF transmission capabilities are intentionally disabled. Only passive reception and device management are available. Build with <code>--features flipper</code> for full serial support.
+            </div>
+        </div>
+    </div>
+
+    <!-- Intel Feed Tab -->
+    <div class="tab-content" id="tab-intel">
+        <div class="sdr-panel">
+            <div class="sdr-header">
+                <div class="sdr-logo">🧠</div>
+                <div class="sdr-title">
+                    <h3>Intel Feed</h3>
+                    <span class="sdr-subtitle">AI-generated scan summaries and detections</span>
+                </div>
+                <button class="action-btn" onclick="generateIntelSummary()">🔄 Generate Summary</button>
+                <button class="action-btn" onclick="announceIntelSummary()">🔊 TTS Announce</button>
+            </div>
+
+            <div class="sdr-section" style="margin-top: 1rem;">
+                <div class="sdr-section-header">
+                    <h4>📡 Live Feed</h4>
+                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
+                        <input type="checkbox" id="ttsAlertToggle" onchange="toggleTtsAlerts(this.checked)"> TTS Alerts
+                    </label>
+                </div>
+                <div id="intelFeedList" style="padding: 1rem; max-height: 500px; overflow-y: auto;">
+                    <div style="color: var(--text-secondary); text-align: center; padding: 2rem;">
+                        Click "Generate Summary" to analyze current RF environment.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- About Tab -->
     <div class="tab-content" id="tab-about">
         <div style="max-width: 800px; margin: 0 auto; padding: 1rem;">
             <div style="text-align: center; margin-bottom: 2rem;">
                 <h2 style="font-size: 1.8rem; margin-bottom: 0.25rem;">SIGINT-Deck</h2>
-                <div style="color: var(--accent-green); font-size: 1.1rem; font-weight: bold;" id="aboutVersion">v0.2.3</div>
+                <div style="color: var(--accent-green); font-size: 1.1rem; font-weight: bold;" id="aboutVersion">v0.3.0</div>
                 <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.25rem;">Portable Signals Intelligence &amp; Security Monitoring</div>
                 <div style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;" id="aboutDeviceName">--</div>
             </div>
@@ -2381,17 +2468,26 @@
             </div>
 
             <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
-                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">v0.2.3 Changelog Highlights</h3>
+                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">v0.3.0 Changelog Highlights</h3>
                 <ul style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.6; padding-left: 1.25rem; margin: 0;">
-                    <li><strong>TSCM Threat Grouping</strong> &mdash; signals at the same frequency grouped as one emitter; consumer device false-positive suggestions</li>
-                    <li><strong>14 SDR Bug Fixes</strong> &mdash; rtl_power frequency format, EMI direct sampling, async cell tower scanning, hardware detection</li>
-                    <li><strong>Consumer Device Database</strong> &mdash; 50+ benign devices (baby monitors, doorbells, key fobs, etc.) for false-positive identification</li>
-                    <li><strong>Browser Audio Streaming</strong> &mdash; live FM/AM/SSB audio from SDR to browser via Web Audio API</li>
-                    <li><strong>Distance Estimation</strong> &mdash; free-space path loss model for all RF detections</li>
-                    <li><strong>RayHunter API Rewrite</strong> &mdash; direct HTTP API to EFF RayHunter with auto ADB forwarding</li>
-                    <li><strong>Military Drone Signatures</strong> &mdash; RF profiles from 9 countries including Shahed, Lancet, Bayraktar, Switchblade</li>
-                    <li><strong>Continuous Scanning</strong> &mdash; TSCM and drone monitors run until stopped with contact tracking</li>
-                    <li><strong>LLM API Key Support</strong> &mdash; OpenAI, Anthropic, Ollama, llama.cpp, LMStudio with Bearer token auth</li>
+                    <li><strong>Waterfall Analyzer</strong> &mdash; HTML5 Canvas real-time scrolling spectrogram with snapshot capture, 17 band presets, 5 color palettes</li>
+                    <li><strong>Signal Fingerprinting</strong> &mdash; IQ capture via RTL-SDR, 17-feature extraction (power, I/Q, phase, FFT, bandwidth), signature database</li>
+                    <li><strong>Intel Feed</strong> &mdash; AI-generated scan summaries with LLM integration, pushable to TTS/Telegram/Signal/MQTT</li>
+                    <li><strong>TTS Alerts</strong> &mdash; Piper text-to-speech announces new contacts, threats, and TSCM alerts</li>
+                    <li><strong>Flipper Zero UI</strong> &mdash; connection status, SubGHz passive capture, device info tab (transmission disabled for safety)</li>
+                    <li><strong>WiFi Filter</strong> &mdash; toggle to exclude known 2.4/5 GHz WiFi signals from TSCM sweeps and drone detection to reduce false positives</li>
+                    <li><strong>MCP Server Update</strong> &mdash; 7 new read-only tools for Ollama/local LLM integration (waterfall, signatures, intel feed, hardware status)</li>
+                    <li><strong>SDR Device Display Fix</strong> &mdash; [object Object] bug fixed; now shows device name, type, serial, and index</li>
+                    <li><strong>ADB/RayHunter Fix</strong> &mdash; ADB path resolution now checks ~/bin; install script includes android-tools</li>
+                </ul>
+                <h3 style="color: var(--text-primary); margin: 1rem 0 0.75rem 0; font-size: 1rem;">v0.2.3 Changelog</h3>
+                <ul style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.6; padding-left: 1.25rem; margin: 0;">
+                    <li><strong>TSCM Threat Grouping</strong> &mdash; signals grouped as one emitter; consumer device false-positive suggestions</li>
+                    <li><strong>14 SDR Bug Fixes</strong> &mdash; rtl_power frequency format, EMI direct sampling, async cell tower scanning</li>
+                    <li><strong>Consumer Device Database</strong> &mdash; 50+ benign devices for false-positive identification</li>
+                    <li><strong>Browser Audio Streaming</strong> &mdash; live FM/AM/SSB audio via Web Audio API</li>
+                    <li><strong>Military Drone Signatures</strong> &mdash; RF profiles from 9 countries</li>
+                    <li><strong>Continuous Scanning</strong> &mdash; TSCM and drone monitors run until stopped</li>
                 </ul>
             </div>
 
@@ -3340,12 +3436,15 @@
             // Render connected devices
             const devicesList = document.getElementById('sdrDevicesList');
             if (data.devices && data.devices.length > 0) {
-                devicesList.innerHTML = data.devices.map(d => `
-                    <div class="sdr-device-item">
-                        <span class="device-icon">📻</span>
-                        <span>${d}</span>
-                    </div>
-                `).join('');
+                devicesList.innerHTML = data.devices.map(d => {
+                    const icon = d.device_type === 'HackRf' ? '🔧' : d.device_type === 'LimeSdr' ? '💚' : '📻';
+                    const serial = d.serial ? ` (${d.serial})` : '';
+                    const name = typeof d === 'string' ? d : (d.name || d.device_type || 'Unknown');
+                    return `<div class="sdr-device-item">
+                        <span class="device-icon">${icon}</span>
+                        <span>${name}${serial} [#${d.index ?? 0}]</span>
+                    </div>`;
+                }).join('');
             } else {
                 devicesList.innerHTML = '<div class="sdr-info-text">No SDR devices connected</div>';
             }
@@ -5159,6 +5258,120 @@
         // Search on Enter
         document.getElementById('contactSearch').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') searchContacts();
+        });
+
+        // ---- Flipper Zero ----
+        async function refreshFlipperStatus() {
+            try {
+                const resp = await safeFetchJson('/api/flipper/status');
+                if (resp) {
+                    document.getElementById('flipperConnStatus').textContent = resp.connected ? '✅ Connected' : '❌ Not Connected';
+                    document.getElementById('flipperConnStatus').style.color = resp.connected ? 'var(--accent-green)' : 'var(--accent-red)';
+                    document.getElementById('flipperBadge').textContent = resp.connected ? '1' : '--';
+                    if (resp.devices && resp.devices.length > 0) {
+                        document.getElementById('flipperPort').textContent = resp.devices[0];
+                    }
+                    if (resp.device_info) {
+                        document.getElementById('flipperFw').textContent = resp.device_info.firmware_version || '--';
+                        document.getElementById('flipperBattery').textContent = resp.device_info.battery_level != null ? resp.device_info.battery_level + '%' : '--';
+                        document.getElementById('flipperDeviceInfo').innerHTML = '<pre>' + JSON.stringify(resp.device_info, null, 2) + '</pre>';
+                    }
+                    if (!resp.feature_enabled) {
+                        document.getElementById('flipperDeviceInfo').innerHTML += '<div style="color:var(--accent-yellow);margin-top:0.5rem;">ℹ️ ' + (resp.hint || 'Build with --features flipper for full support') + '</div>';
+                    }
+                }
+            } catch(e) { console.error('Flipper status error:', e); }
+        }
+
+        async function flipperSubGhzCapture() {
+            const el = document.getElementById('flipperSubGhzResults');
+            el.innerHTML = '<div style="color:var(--accent-yellow);">📡 Capturing...</div>';
+            try {
+                const resp = await safeFetchJson('/api/flipper/subghz/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({frequency_mhz:433.92})});
+                if (resp) {
+                    el.innerHTML = '<pre>' + JSON.stringify(resp, null, 2) + '</pre>';
+                } else {
+                    el.innerHTML = '<div style="color:var(--accent-red);">No response</div>';
+                }
+            } catch(e) { el.innerHTML = '<div style="color:var(--accent-red);">Error: ' + e.message + '</div>'; }
+        }
+
+        // ---- WiFi Filter ----
+        async function toggleWifiFilter(enabled) {
+            try {
+                await safeFetchJson('/api/sdr/wifi-filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: enabled, exclude_known_wifi: enabled})
+                });
+            } catch(e) { console.error('WiFi filter error:', e); }
+        }
+
+        // ---- Intel Feed ----
+        async function generateIntelSummary() {
+            const el = document.getElementById('intelFeedList');
+            el.innerHTML = '<div style="color:var(--accent-yellow);text-align:center;padding:1rem;">🧠 Generating summary...</div>';
+            try {
+                const resp = await safeFetchJson('/api/intel/summary', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({context: 'User requested manual summary'})
+                });
+                await refreshIntelFeed();
+            } catch(e) {
+                el.innerHTML = '<div style="color:var(--accent-red);">Error: ' + e.message + '</div>';
+            }
+        }
+
+        async function refreshIntelFeed() {
+            try {
+                const resp = await safeFetchJson('/api/intel/feed');
+                const el = document.getElementById('intelFeedList');
+                if (resp && resp.entries && resp.entries.length > 0) {
+                    el.innerHTML = resp.entries.map(e => `
+                        <div style="border-bottom:1px solid var(--bg-tertiary);padding:0.75rem 0;">
+                            <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
+                                <span style="color:var(--accent-blue);font-size:0.8rem;">${e.type || 'summary'}</span>
+                                <span style="color:var(--text-secondary);font-size:0.75rem;">${new Date(e.timestamp).toLocaleString()}</span>
+                            </div>
+                            <div style="color:var(--text-primary);font-size:0.9rem;">${escapeHtml(e.message || '')}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    el.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:2rem;">No intel entries yet.</div>';
+                }
+            } catch(e) { console.error('Intel feed error:', e); }
+        }
+
+        async function announceIntelSummary() {
+            try {
+                const feed = await safeFetchJson('/api/intel/feed');
+                if (feed && feed.entries && feed.entries.length > 0) {
+                    await safeFetchJson('/api/alerts/tts/announce', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({message: feed.entries[0].message})
+                    });
+                }
+            } catch(e) { console.error('TTS announce error:', e); }
+        }
+
+        async function toggleTtsAlerts(enabled) {
+            try {
+                await safeFetchJson('/api/alerts/tts/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: enabled})
+                });
+            } catch(e) { console.error('TTS config error:', e); }
+        }
+
+        // Load Flipper status on tab switch
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.tab === 'flipper') refreshFlipperStatus();
+                if (btn.dataset.tab === 'intel') refreshIntelFeed();
+            });
         });
     </script>
 </body>
