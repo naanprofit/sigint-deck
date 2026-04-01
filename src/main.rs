@@ -17,6 +17,7 @@ mod rayhunter;
 mod openclaw;
 mod meshtastic;
 mod sdr;
+mod flipper;
 
 #[cfg(feature = "simulation")]
 mod simulation;
