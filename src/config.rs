@@ -150,7 +150,7 @@ pub struct RayHunterConfig {
     pub alert_template: Option<String>,
 }
 
-fn default_rayhunter_url() -> String { "http://localhost:8080".to_string() }
+fn default_rayhunter_url() -> String { "http://localhost:8081".to_string() }
 fn default_rayhunter_interval() -> u64 { 5 }
 
 impl Default for RayHunterConfig {

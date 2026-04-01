@@ -3124,20 +3124,26 @@
                     return;
                 }
                 
-                // Update status
-                document.getElementById('rhDeviceStatus').textContent = data.running ? 'Running' : 'Stopped';
-                document.getElementById('rhMonitoring').textContent = data.running ? 'Active' : 'Inactive';
-                document.getElementById('rhDataFiles').textContent = data.latest_file?.split('/').pop() || '--';
+                // Update status fields
+                document.getElementById('rhDeviceStatus').textContent = 
+                    `v${data.version || '?'} (${data.system_os || 'unknown'})`;
+                document.getElementById('rhMonitoring').textContent = 
+                    data.recording ? 'Recording' : 'Idle';
+                document.getElementById('rhDataFiles').textContent = 
+                    `${data.total_entries || 0} entries`;
                 
-                // Parse timestamp
-                if (data.last_analysis?.timestamp) {
-                    const ts = new Date(data.last_analysis.timestamp);
+                // Parse timestamp from current entry
+                if (data.current_entry?.last_message_time) {
+                    const ts = new Date(data.current_entry.last_message_time);
+                    document.getElementById('rhLastUpdate').textContent = ts.toLocaleTimeString();
+                } else if (data.analysis?.timestamp) {
+                    const ts = new Date(data.analysis.timestamp);
                     document.getElementById('rhLastUpdate').textContent = ts.toLocaleTimeString();
                 }
                 
                 // Check for threats
-                const hasThreat = data.threat_detected || 
-                    (data.last_analysis?.analysis && data.last_analysis.analysis.length > 0);
+                const hasThreat = data.threat_detected || data.imsi_catcher_detected || 
+                    (data.warnings_count && data.warnings_count > 0);
                 
                 if (hasThreat) {
                     indicator.className = 'rayhunter-indicator threat';
@@ -3145,9 +3151,16 @@
                     badge.textContent = '⚠️';
                     badge.className = 'badge-count rayhunter-status threat';
                     
-                    // Show threat panel
+                    // Show threat panel with warning details
                     threatPanel.style.display = 'block';
-                    threatDetails.innerHTML = `<pre>${JSON.stringify(data.last_analysis.analysis, null, 2)}</pre>`;
+                    let detailHtml = `<p><strong>${data.warnings_count || 0} warnings detected</strong></p>`;
+                    if (data.analysis?.findings) {
+                        for (const f of data.analysis.findings) {
+                            detailHtml += `<p style="color:var(--accent-red)">⚠️ ${f.description}</p>`;
+                            if (f.details) detailHtml += `<p style="font-size:0.8em;color:var(--text-secondary)">${f.details}</p>`;
+                        }
+                    }
+                    threatDetails.innerHTML = detailHtml;
                     
                     // Play alert if this is a new threat
                     if (!rayhunterLastThreat) {
@@ -3505,12 +3518,67 @@
                 document.getElementById('radioRunning').style.color = 'var(--accent-green)';
                 document.getElementById('radioFrequency').textContent = (data.frequency_hz / 1000000).toFixed(3) + ' MHz';
                 document.getElementById('radioModulation').textContent = data.modulation.toUpperCase();
+                
+                // Start audio stream to browser
+                startAudioStream(data.sample_rate || 24000);
             } catch (e) {
                 alert('Failed to tune: ' + e.message);
             }
         }
         
+        let audioCtx = null;
+        let audioAbort = null;
+        
+        async function startAudioStream(sampleRate) {
+            stopAudioStream();
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
+                audioAbort = new AbortController();
+                const resp = await fetch('/api/sdr/radio/stream', { signal: audioAbort.signal });
+                const reader = resp.body.getReader();
+                let leftover = new Uint8Array(0);
+                
+                async function pump() {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        // Combine leftover + new data
+                        const combined = new Uint8Array(leftover.length + value.length);
+                        combined.set(leftover);
+                        combined.set(value, leftover.length);
+                        
+                        // Process pairs of bytes (16-bit signed LE PCM)
+                        const sampleCount = Math.floor(combined.length / 2);
+                        if (sampleCount === 0) { leftover = combined; continue; }
+                        leftover = combined.slice(sampleCount * 2);
+                        
+                        const buf = audioCtx.createBuffer(1, sampleCount, sampleRate);
+                        const chan = buf.getChannelData(0);
+                        const view = new DataView(combined.buffer, combined.byteOffset, sampleCount * 2);
+                        for (let i = 0; i < sampleCount; i++) {
+                            chan[i] = view.getInt16(i * 2, true) / 32768.0;
+                        }
+                        
+                        const src = audioCtx.createBufferSource();
+                        src.buffer = buf;
+                        src.connect(audioCtx.destination);
+                        src.start(0);
+                    }
+                }
+                pump().catch(() => {});
+            } catch (e) {
+                if (e.name !== 'AbortError') console.error('Audio stream error:', e);
+            }
+        }
+        
+        function stopAudioStream() {
+            if (audioAbort) { audioAbort.abort(); audioAbort = null; }
+            if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+        }
+        
         async function stopRadio() {
+            stopAudioStream();
             try {
                 await fetch('/api/sdr/radio/stop', { method: 'POST' });
                 document.getElementById('radioRunning').textContent = 'Stopped';

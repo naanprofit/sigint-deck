@@ -178,6 +178,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/oui/lookup/{mac}", web::get().to(lookup_oui))
             // RayHunter IMSI Catcher Detection
             .route("/rayhunter/status", web::get().to(get_rayhunter_status))
+            .route("/rayhunter/start-recording", web::post().to(rayhunter_start_recording))
+            .route("/rayhunter/stop-recording", web::post().to(rayhunter_stop_recording))
             // SDR (Software Defined Radio)
             .route("/sdr/status", web::get().to(get_sdr_status))
             .route("/sdr/rtl433/devices", web::get().to(get_rtl433_devices))
@@ -205,6 +207,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/sdr/radio/tune", web::post().to(tune_radio))
             .route("/sdr/radio/stop", web::post().to(stop_radio))
             .route("/sdr/radio/status", web::get().to(get_radio_status))
+            .route("/sdr/radio/stream", web::get().to(stream_radio_audio))
             // TSCM Bug Detection
             .route("/sdr/tscm/sweep", web::post().to(start_tscm_sweep))
             .route("/sdr/tscm/status", web::get().to(get_tscm_status))
@@ -2365,68 +2368,38 @@ async fn lookup_oui(
 // RayHunter IMSI Catcher Detection
 // ============================================
 
-async fn get_rayhunter_status() -> impl Responder {
-    // Try to run the rayhunter-poll.sh script
-    let poll_script = dirs::home_dir()
-        .map(|h| h.join("sigint-deck").join("rayhunter-poll.sh"))
-        .unwrap_or_else(|| std::path::PathBuf::from("./rayhunter-poll.sh"));
-    
-    if !poll_script.exists() {
-        return HttpResponse::Ok().json(serde_json::json!({
-            "available": false,
-            "error": "RayHunter poll script not found",
-            "hint": "Install ADB and create rayhunter-poll.sh"
-        }));
+async fn get_rayhunter_status(
+    config: web::Data<Arc<Config>>,
+) -> impl Responder {
+    let rh_config = config.rayhunter.clone().unwrap_or_default();
+    let client = crate::rayhunter::RayHunterClient::new(rh_config);
+    let status = client.get_full_status().await;
+    HttpResponse::Ok().json(status)
+}
+
+async fn rayhunter_start_recording(
+    config: web::Data<Arc<Config>>,
+) -> impl Responder {
+    let rh_config = config.rayhunter.clone().unwrap_or_default();
+    let base_url = rh_config.api_url.trim_end_matches('/');
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    match client.post(&format!("{}/api/start-recording", base_url)).send().await {
+        Ok(r) if r.status().is_success() => HttpResponse::Ok().json(serde_json::json!({"success": true, "message": "Recording started"})),
+        Ok(r) => HttpResponse::Ok().json(serde_json::json!({"success": false, "error": format!("HTTP {}", r.status())})),
+        Err(e) => HttpResponse::Ok().json(serde_json::json!({"success": false, "error": format!("{}", e)})),
     }
-    
-    let output = std::process::Command::new("bash")
-        .arg(&poll_script)
-        .output();
-    
-    match output {
-        Ok(out) if out.status.success() => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => {
-                    // Check if there are any analysis warnings
-                    let has_threat = json.get("last_analysis")
-                        .and_then(|a| a.get("analysis"))
-                        .and_then(|arr| arr.as_array())
-                        .map(|arr| !arr.is_empty())
-                        .unwrap_or(false);
-                    
-                    let mut response = json.clone();
-                    if let Some(obj) = response.as_object_mut() {
-                        obj.insert("available".to_string(), serde_json::json!(true));
-                        obj.insert("threat_detected".to_string(), serde_json::json!(has_threat));
-                    }
-                    
-                    HttpResponse::Ok().json(response)
-                }
-                Err(e) => {
-                    HttpResponse::Ok().json(serde_json::json!({
-                        "available": true,
-                        "connected": false,
-                        "error": format!("Failed to parse RayHunter output: {}", e),
-                        "raw_output": stdout.to_string()
-                    }))
-                }
-            }
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            HttpResponse::Ok().json(serde_json::json!({
-                "available": true,
-                "connected": false,
-                "error": format!("RayHunter poll failed: {}", stderr)
-            }))
-        }
-        Err(e) => {
-            HttpResponse::Ok().json(serde_json::json!({
-                "available": false,
-                "error": format!("Failed to execute poll script: {}", e)
-            }))
-        }
+}
+
+async fn rayhunter_stop_recording(
+    config: web::Data<Arc<Config>>,
+) -> impl Responder {
+    let rh_config = config.rayhunter.clone().unwrap_or_default();
+    let base_url = rh_config.api_url.trim_end_matches('/');
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    match client.post(&format!("{}/api/stop-recording", base_url)).send().await {
+        Ok(r) if r.status().is_success() => HttpResponse::Ok().json(serde_json::json!({"success": true, "message": "Recording stopped"})),
+        Ok(r) => HttpResponse::Ok().json(serde_json::json!({"success": false, "error": format!("HTTP {}", r.status())})),
+        Err(e) => HttpResponse::Ok().json(serde_json::json!({"success": false, "error": format!("{}", e)})),
     }
 }
 
@@ -2947,13 +2920,18 @@ fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> 
     
     // Only report if signal is strong enough (above noise floor)
     if max_power > -60.0 {
+        let freq_mhz = max_freq as f64 / 1_000_000.0;
+        let (dist_min, dist_max, dist_desc) = estimate_distance(max_power, freq_mhz);
         Some(serde_json::json!({
             "band": band,
             "frequency_hz": max_freq,
-            "frequency_mhz": max_freq as f64 / 1_000_000.0,
+            "frequency_mhz": freq_mhz,
             "power_db": max_power,
             "signal_type": if band == "5.8GHz" { "video" } else { "control" },
-            "threat_level": if max_power > -40.0 { "high" } else if max_power > -50.0 { "medium" } else { "low" }
+            "threat_level": if max_power > -40.0 { "high" } else if max_power > -50.0 { "medium" } else { "low" },
+            "estimated_distance": dist_desc,
+            "distance_min_m": dist_min,
+            "distance_max_m": dist_max
         }))
     } else {
         None
@@ -4164,19 +4142,63 @@ struct TuneRadioRequest {
     device_index: Option<u32>,
 }
 
+/// Estimate distance from signal strength using free-space path loss model
+/// Returns (min_meters, max_meters, description)
+pub fn estimate_distance(rssi_dbm: f64, frequency_mhz: f64) -> (f64, f64, String) {
+    // Free-space path loss: FSPL(dB) = 20*log10(d) + 20*log10(f) + 32.44
+    // where d = distance in km, f = frequency in MHz
+    // Rearranged: d(km) = 10^((FSPL - 20*log10(f) - 32.44) / 20)
+    //
+    // Assume transmitter power varies by device type:
+    // - Low power bug/tracker: 0 to 10 dBm (1-10 mW)
+    // - Medium power radio: 20 dBm (100 mW)
+    // - High power drone/radio: 27-30 dBm (500 mW - 1W)
+    //
+    // FSPL = tx_power - rssi (received signal = transmitted - path_loss)
+    
+    let freq_log = if frequency_mhz > 0.0 { 20.0 * frequency_mhz.log10() } else { 0.0 };
+    
+    // Low power estimate (assume 0 dBm tx = 1 mW, closest estimate)
+    let fspl_low = 0.0 - rssi_dbm;
+    let d_low_km = 10.0_f64.powf((fspl_low - freq_log - 32.44) / 20.0);
+    let d_low_m = (d_low_km * 1000.0).max(0.1);
+    
+    // High power estimate (assume 30 dBm tx = 1W, farthest estimate)
+    let fspl_high = 30.0 - rssi_dbm;
+    let d_high_km = 10.0_f64.powf((fspl_high - freq_log - 32.44) / 20.0);
+    let d_high_m = (d_high_km * 1000.0).max(0.1);
+    
+    let desc = if d_low_m < 1.0 {
+        "Very close (< 1m) - possibly on your person or vehicle".to_string()
+    } else if d_low_m < 10.0 {
+        format!("Nearby ({:.0}m - {:.0}m) - same room or adjacent", d_low_m, d_high_m.min(100.0))
+    } else if d_low_m < 100.0 {
+        format!("Close ({:.0}m - {:.0}m) - same building or nearby", d_low_m, d_high_m.min(500.0))
+    } else if d_low_m < 1000.0 {
+        format!("Medium range ({:.0}m - {:.1}km)", d_low_m, d_high_m / 1000.0)
+    } else {
+        format!("Far ({:.1}km - {:.1}km)", d_low_m / 1000.0, d_high_m / 1000.0)
+    };
+    
+    (d_low_m, d_high_m, desc)
+}
+
 async fn tune_radio(body: web::Json<TuneRadioRequest>) -> impl Responder {
     let caps = SdrCapabilities::detect();
     
     if !caps.rtl_sdr {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "RTL-SDR not available",
-            "hint": "Install rtl-sdr package"
+            "hint": "Connect an RTL-SDR device"
         }));
     }
     
     // Stop any existing radio
     let _ = std::process::Command::new("pkill").args(&["-f", "rtl_fm"]).output();
+    let _ = std::process::Command::new("pkill").args(&["-f", "ffmpeg.*sigint_radio"]).output();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     
+    let resolve = crate::sdr::resolve_sdr_command;
     let modulation = body.modulation.clone().unwrap_or_else(|| "fm".to_string());
     let mod_arg = match modulation.to_lowercase().as_str() {
         "am" => "am",
@@ -4187,34 +4209,40 @@ async fn tune_radio(body: web::Json<TuneRadioRequest>) -> impl Responder {
         _ => "fm",
     };
     
-    let freq_str = body.frequency_hz.to_string();
-    let mut args = vec!["-f", &freq_str, "-M", mod_arg];
+    let sample_rate = if mod_arg == "wbfm" { "170000" } else { "24000" };
+    let output_rate = if mod_arg == "wbfm" { "48000" } else { "24000" };
+
+    // Build rtl_fm command
+    let mut cmd_parts = vec![
+        resolve("rtl_fm"),
+        "-f".to_string(), body.frequency_hz.to_string(),
+        "-M".to_string(), mod_arg.to_string(),
+        "-s".to_string(), sample_rate.to_string(),
+        "-r".to_string(), output_rate.to_string(),
+    ];
     
-    let squelch_str;
     if let Some(sq) = body.squelch {
-        squelch_str = sq.to_string();
-        args.extend(&["-l", &squelch_str]);
+        cmd_parts.extend(["-l".to_string(), sq.to_string()]);
     }
-    
-    let gain_str;
     if let Some(g) = body.gain {
-        gain_str = g.to_string();
-        args.extend(&["-g", &gain_str]);
+        cmd_parts.extend(["-g".to_string(), g.to_string()]);
     }
-    
-    let device_str;
     if let Some(d) = body.device_index {
-        device_str = d.to_string();
-        args.extend(&["-d", &device_str]);
+        cmd_parts.extend(["-d".to_string(), d.to_string()]);
     }
     
-    // Pipe to aplay for audio output
-    args.extend(&["-", "|", "aplay", "-r", "24000", "-f", "S16_LE"]);
+    // Write raw PCM to a named pipe, also pipe to local aplay if available
+    // The /api/sdr/radio/stream endpoint will read from this pipe
+    let pipe_path = "/tmp/sigint_radio.pcm";
+    let _ = std::fs::remove_file(pipe_path);
     
-    // Start rtl_fm in background
+    // Start rtl_fm writing raw PCM to a file (rolling buffer)
+    let rtl_cmd = cmd_parts.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join(" ");
     let _child = std::process::Command::new("sh")
-        .args(&["-c", &format!("rtl_fm {} 2>/dev/null | aplay -r 24000 -f S16_LE -t raw 2>/dev/null &", 
-            args[..args.len()-4].join(" "))])
+        .args(&["-c", &format!(
+            "{} 2>/dev/null > {} &",
+            rtl_cmd, pipe_path
+        )])
         .spawn();
     
     {
@@ -4234,13 +4262,74 @@ async fn tune_radio(body: web::Json<TuneRadioRequest>) -> impl Responder {
         "status": "tuned",
         "frequency_hz": body.frequency_hz,
         "frequency_mhz": body.frequency_hz as f64 / 1_000_000.0,
-        "modulation": modulation
+        "modulation": modulation,
+        "sample_rate": output_rate.parse::<u32>().unwrap_or(24000),
+        "stream_url": "/api/sdr/radio/stream"
     }))
+}
+
+/// GET /api/sdr/radio/stream - Stream raw PCM audio to browser
+/// Returns chunked audio/pcm data (signed 16-bit LE, mono)
+async fn stream_radio_audio() -> impl Responder {
+    use actix_web::HttpResponse;
+    use futures::stream;
+    
+    let running = { *RADIO_RUNNING.lock().unwrap() };
+    if !running {
+        return HttpResponse::BadRequest()
+            .content_type("application/json")
+            .body(r#"{"error":"Radio not running. Tune to a frequency first."}"#);
+    }
+    
+    let pipe_path = "/tmp/sigint_radio.pcm";
+    
+    // Stream PCM data as chunked HTTP response
+    // The browser will decode this with Web Audio API
+    let stream = stream::unfold(
+        (std::path::PathBuf::from(pipe_path), 0u64),
+        |(path, mut offset)| async move {
+            // Keep streaming while radio is running
+            for _ in 0..600 { // Max ~60 seconds per connection (100ms * 600)
+                let running = { *RADIO_RUNNING.lock().unwrap() };
+                if !running { return None; }
+                
+                // Read available data from the PCM file
+                if let Ok(data) = tokio::fs::read(&path).await {
+                    let data_len = data.len() as u64;
+                    if data_len > offset {
+                        let new_data = data[offset as usize..].to_vec();
+                        offset = data_len;
+                        if !new_data.is_empty() {
+                            return Some((Ok::<_, std::io::Error>(actix_web::web::Bytes::from(new_data)), (path, offset)));
+                        }
+                    }
+                    // File might get too large, reset if > 10MB
+                    if data_len > 10_000_000 {
+                        let _ = tokio::fs::write(&path, &[]).await;
+                        offset = 0;
+                    }
+                }
+                
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            None
+        },
+    );
+    
+    HttpResponse::Ok()
+        .content_type("audio/pcm")
+        .insert_header(("X-Sample-Rate", "24000"))
+        .insert_header(("X-Channels", "1"))
+        .insert_header(("X-Bits", "16"))
+        .insert_header(("X-Encoding", "signed-integer"))
+        .insert_header(("Access-Control-Expose-Headers", "X-Sample-Rate, X-Channels, X-Bits"))
+        .streaming(stream)
 }
 
 async fn stop_radio() -> impl Responder {
     let _ = std::process::Command::new("pkill").args(&["-f", "rtl_fm"]).output();
     let _ = std::process::Command::new("pkill").args(&["-f", "aplay"]).output();
+    let _ = std::fs::remove_file("/tmp/sigint_radio.pcm");
     
     {
         let mut running = RADIO_RUNNING.lock().unwrap();
@@ -4560,9 +4649,11 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
                                     }
                                     existing["power_db"] = serde_json::json!(power_db);
                                 } else {
+                                    let freq_mhz = freq as f64 / 1e6;
+                                    let (dist_min, dist_max, dist_desc) = estimate_distance(power_db, freq_mhz);
                                     threats.push(serde_json::json!({
                                         "frequency_hz": freq,
-                                        "frequency_mhz": freq as f64 / 1e6,
+                                        "frequency_mhz": freq_mhz,
                                         "power_db": power_db,
                                         "peak_power_db": power_db,
                                         "peak_frequency_hz": freq,
@@ -4573,7 +4664,11 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
                                         "source": threat_band.source,
                                         "first_seen": now,
                                         "last_seen": now,
-                                        "sightings": 1u64
+                                        "sightings": 1u64,
+                                        "estimated_distance_m": format!("{:.0} - {:.0}", dist_min, dist_max),
+                                        "distance_description": dist_desc,
+                                        "distance_min_m": dist_min,
+                                        "distance_max_m": dist_max
                                     }));
                                 }
                             }
