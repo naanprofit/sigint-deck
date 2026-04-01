@@ -2152,7 +2152,7 @@ struct SpeakRequest {
 async fn speak_text(
     body: web::Json<SpeakRequest>,
 ) -> impl Responder {
-    let voice = body.voice.as_deref().unwrap_or("en_US-lessac-medium");
+    let voice_name = body.voice.as_deref().unwrap_or("en_US-lessac-medium");
     let output_path = "/tmp/sigint-speech-output.wav";
     
     // Try piper - check venv first, then system
@@ -2168,8 +2168,16 @@ async fn speak_text(
         })
         .unwrap_or_else(|| "piper".to_string());
 
+    // Resolve model path - check models/piper/ directory for .onnx files
+    let home = std::env::var("HOME").unwrap_or_default();
+    let model_path = ["sigint-deck", "sigint-pi", "sigint-clockworkpi"]
+        .iter()
+        .map(|d| format!("{}/{}/models/piper/{}.onnx", home, d, voice_name))
+        .find(|p| std::path::Path::new(p).exists())
+        .unwrap_or_else(|| voice_name.to_string());
+
     let result = std::process::Command::new(&piper_cmd)
-        .args(["--model", voice, "--output_file", output_path])
+        .args(["--model", &model_path, "--output_file", output_path])
         .stdin(std::process::Stdio::piped())
         .spawn()
         .and_then(|mut child| {
