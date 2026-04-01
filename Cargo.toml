@@ -4,7 +4,7 @@ version = "0.2.2"
 edition = "2021"
 authors = ["naanprofit"]
 description = "Portable SIGINT security device for Steam Deck"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/naanprofit/sigint-deck"
 
 [dependencies]

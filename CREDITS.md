@@ -183,4 +183,5 @@ Key licenses used by dependencies:
 
 This software is provided for educational and authorized security research purposes only. The inclusion of any project in this credits file does not imply endorsement of SIGINT-Deck by that project.
 
-See [LEGAL.md](LEGAL.md) for important legal information.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+See [LICENSE](LICENSE) for the full license text and [LEGAL.md](LEGAL.md) for important legal information.
