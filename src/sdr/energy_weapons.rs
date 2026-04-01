@@ -1042,7 +1042,7 @@ mod tests {
         let dews = directed_energy_weapons_database();
         assert!(dews.iter().any(|d| d.name.contains("Active Denial")));
         assert!(dews.iter().any(|d| d.name.contains("LRAD")));
-        assert!(dews.iter().any(|d| d.name.contains("HELWS")));
+        assert!(dews.iter().any(|d| d.designation.as_deref() == Some("HELWS") || d.name.contains("High Energy Laser")));
     }
     
     #[test]

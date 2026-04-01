@@ -843,57 +843,95 @@ impl EmiDetector {
         }
     }
     
-    /// Scan for motor EMI using RTL-SDR direct sampling mode
-    /// Direct sampling bypasses the tuner and samples baseband directly
-    /// allowing reception from ~500 Hz to ~14.4 MHz (RTL2832U ADC rate / 2)
+    /// Scan for motor EMI harmonics.
+    ///
+    /// Strategy by available hardware:
+    /// 1. RTL-SDR direct sampling mode (-D 2): captures baseband 0-14.4 MHz via ADC
+    /// 2. HackRF sweep: can scan from 1 MHz, covers the motor EMI range
+    /// 3. RTL-SDR tuner fallback: scans 24-30 MHz for higher-order harmonics only
     pub async fn scan_emi(&mut self) -> anyhow::Result<Vec<EmiSignature>> {
         if !self.config.enabled {
             return Ok(vec![]);
         }
         
-        let start_khz = self.config.scan_range_khz.0 as u32;
-        let end_khz = self.config.scan_range_khz.1 as u32;
+        let start_khz = self.config.scan_range_khz.0 as u32; // typically 5
+        let end_khz = self.config.scan_range_khz.1 as u32;   // typically 500
         let resolve = crate::sdr::resolve_sdr_command;
         
-        // EMI frequencies are typically below RTL-SDR tuner range.
-        // Use 24-30 MHz range which is the lowest rtl_power supports
-        // and where motor harmonics can still be detected.
-        let emi_start = start_khz.max(24000); // min 24 MHz for rtl_power
-        let emi_end = end_khz.max(emi_start + 1000).min(30000); // cap at 30 MHz
-        let freq_range = format!("{}M:{}M:1k", emi_start / 1000, emi_end / 1000);
+        let mut detected = Vec::new();
         
+        // Strategy 1: RTL-SDR direct sampling mode for true sub-24MHz reception
+        // -D 2 enables Q-branch direct sampling, bypassing the tuner
+        // This gives ~0 to ~14.4 MHz (half the 28.8 MSPS ADC rate)
+        let center_hz: u64 = ((start_khz as u64 + end_khz.min(14400) as u64) / 2) * 1000;
+        let sample_rate: u64 = 2_400_000; // 2.4 MSPS
+        let iq_path = "/tmp/sigint_emi_direct.bin";
+        let num_samples = sample_rate * 2; // 1 second of data
+        
+        let rtl_direct = Command::new(&resolve("rtl_sdr"))
+            .args(&[
+                "-D", "2",            // direct sampling Q-branch
+                "-f", &center_hz.to_string(),
+                "-s", &sample_rate.to_string(),
+                "-n", &num_samples.to_string(),
+                "-g", "0",            // no tuner gain in direct sampling
+                "-d", &self.config.device_index.to_string(),
+                iq_path,
+            ])
+            .output()
+            .await;
+        
+        if let Ok(out) = &rtl_direct {
+            if out.status.success() {
+                // FFT the raw IQ to get spectrum, then analyze
+                if let Some(csv) = crate::web::api::iq_to_csv(iq_path, center_hz, sample_rate, false).await {
+                    detected = self.analyze_emi_spectrum(&csv);
+                    if !detected.is_empty() {
+                        return Ok(detected);
+                    }
+                }
+            }
+        }
+        
+        // Strategy 2: HackRF sweep (supports 1 MHz and up)
+        let hrf_end_mhz = (end_khz as f64 / 1000.0).max(1.0).ceil() as u32;
+        let hackrf_output = Command::new(&resolve("hackrf_sweep"))
+            .args(&[
+                "-f", &format!("1:{}", hrf_end_mhz.max(2)),
+                "-w", "10000",
+                "-1",
+            ])
+            .output()
+            .await;
+        
+        if let Ok(out) = hackrf_output {
+            if out.status.success() && !out.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                detected = self.analyze_emi_spectrum(&stdout);
+                if !detected.is_empty() {
+                    return Ok(detected);
+                }
+            }
+        }
+        
+        // Strategy 3: RTL-SDR tuner mode fallback (24-30 MHz for higher-order harmonics)
+        let freq_range = "24M:30M:1k";
         let output = Command::new(&resolve("rtl_power"))
             .args(&[
-                "-f", &freq_range,
+                "-f", freq_range,
                 "-i", "1", "-1", "-g", "40",
                 "-d", &self.config.device_index.to_string(),
             ])
             .output()
             .await;
         
-        let mut detected = Vec::new();
-        
         match output {
-            Ok(output) => {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    detected = self.analyze_emi_spectrum(&stdout);
-                } else {
-                    // Try alternative: use hackrf_sweep for wider bandwidth
-                    let hackrf_output = Command::new("hackrf_sweep")
-                        .args(&[
-                            "-f", &format!("0:{}", end_khz / 1000),  // 0 to end MHz
-                            "-w", "10000",  // 10 kHz bins
-                            "-1",
-                        ])
-                        .output()
-                        .await;
-                    
-                    if let Ok(out) = hackrf_output {
-                        let stdout = String::from_utf8_lossy(&out.stdout);
-                        detected = self.analyze_emi_spectrum(&stdout);
-                    }
-                }
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                detected = self.analyze_emi_spectrum(&stdout);
+            }
+            Ok(_) => {
+                debug!("rtl_power EMI fallback produced no usable output");
             }
             Err(e) => {
                 warn!("EMI scan failed: {}", e);

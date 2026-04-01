@@ -4573,7 +4573,7 @@ async fn tscm_scan_band(start_mhz: f64, end_mhz: f64, has_hackrf: bool, has_rtl:
 }
 
 /// Convert raw IQ binary file to rtl_power-compatible CSV using python FFT
-async fn iq_to_csv(iq_path: &str, center_hz: u64, sample_rate: u64, is_hackrf: bool) -> Option<String> {
+pub async fn iq_to_csv(iq_path: &str, center_hz: u64, sample_rate: u64, is_hackrf: bool) -> Option<String> {
     let decode = if is_hackrf { "(data[i*2]^0x80)-128" } else { "data[i*2]-127.5" };
     let decode_q = if is_hackrf { "(data[i*2+1]^0x80)-128" } else { "data[i*2+1]-127.5" };
     let script = format!(
@@ -4710,6 +4710,21 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
             })
         }).collect();
 
+        // Check for consumer devices at this frequency (possible false positives)
+        let consumer_matches = crate::sdr::consumer_false_positives::ConsumerDevice::devices_in_range(
+            group.peak_hz.saturating_sub(500_000), // +/- 500 kHz tolerance
+            group.peak_hz.saturating_add(500_000),
+        );
+        let consumer_json: Vec<serde_json::Value> = consumer_matches.iter().take(5).map(|d| {
+            serde_json::json!({
+                "name": d.name,
+                "category": format!("{:?}", d.category),
+                "brands": d.common_brands,
+                "prevalence": format!("{:?}", d.prevalence),
+                "description": d.description,
+            })
+        }).collect();
+
         // Try to find existing grouped threat at this frequency
         let existing = threats.iter_mut().find(|t| {
             if let Some(existing_hz) = t.get("group_center_hz").and_then(|v| v.as_u64()) {
@@ -4730,9 +4745,11 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
                 existing["peak_frequency_hz"] = serde_json::json!(group.peak_hz);
             }
             existing["power_db"] = serde_json::json!(group.peak_db);
-            // Update matched rules in case new bands were matched
             existing["matched_rules"] = serde_json::json!(rules_json);
             existing["matched_rules_count"] = serde_json::json!(rules_json.len());
+            if !consumer_json.is_empty() {
+                existing["possible_benign"] = serde_json::json!(consumer_json);
+            }
         } else {
             let freq_mhz = group.peak_hz as f64 / 1e6;
             let (dist_min, dist_max, dist_desc) = estimate_distance(group.peak_db, freq_mhz);
@@ -4756,7 +4773,8 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
                 "estimated_distance_m": format!("{:.0} - {:.0}", dist_min, dist_max),
                 "distance_description": dist_desc,
                 "distance_min_m": dist_min,
-                "distance_max_m": dist_max
+                "distance_max_m": dist_max,
+                "possible_benign": consumer_json
             }));
         }
     }

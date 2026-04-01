@@ -3851,6 +3851,7 @@
                 const rules = t.matched_rules || [];
                 const distStr = t.distance_description ? ` | ~${t.distance_description}` : '';
 
+                const benign = t.possible_benign || [];
                 let rulesHtml = '';
                 if (rules.length > 1) {
                     const otherRules = rules.slice(1);
@@ -3867,6 +3868,25 @@
                             </div>
                             <div style="padding:0.25rem 0 0 0.5rem;font-style:italic;color:var(--text-secondary);">
                                 These rules overlap at this frequency. Likely 1 emitter, not ${rulesCount}.
+                            </div>
+                        </details>`;
+                }
+                if (benign.length > 0) {
+                    rulesHtml += `
+                        <details style="margin-top:0.25rem;font-size:0.75rem;">
+                            <summary style="cursor:pointer;color:var(--accent-blue);">
+                                &#x1F4E1; ${benign.length} common consumer device${benign.length > 1 ? 's' : ''} also use this frequency
+                            </summary>
+                            <div style="padding:0.25rem 0 0 0.5rem;color:var(--text-secondary);">
+                                ${benign.map(b => `<div style="margin:3px 0;">
+                                    <span style="color:var(--accent-blue);">&#9675;</span>
+                                    <strong>${b.name}</strong> (${b.category})
+                                    ${b.brands && b.brands.length > 0 ? `<br><span style="font-size:0.7rem;">Brands: ${b.brands.join(', ')}</span>` : ''}
+                                    ${b.prevalence ? `<span style="font-size:0.7rem;margin-left:0.5rem;opacity:0.7;">[${b.prevalence}]</span>` : ''}
+                                </div>`).join('')}
+                            </div>
+                            <div style="padding:0.25rem 0 0 0.5rem;font-style:italic;color:var(--accent-blue);font-size:0.7rem;">
+                                Consider whether nearby consumer devices could explain this signal before escalating.
                             </div>
                         </details>`;
                 }

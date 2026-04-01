@@ -1,4 +1,4 @@
-mod api;
+pub(crate) mod api;
 
 pub use api::{AppState, WifiDeviceInfo, BleDeviceInfo, AlertInfo, AttackInfo, HardwareStatusInfo, TrackerInfoApi, GpsStatusInfo};
 

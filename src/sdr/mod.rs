@@ -25,6 +25,7 @@ pub mod tradecraft;
 pub mod consumer_tactical_radios;
 pub mod advanced_threats;
 pub mod energy_weapons;
+pub mod consumer_false_positives;
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;

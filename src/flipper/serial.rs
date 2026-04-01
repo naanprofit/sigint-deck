@@ -66,18 +66,27 @@ impl FlipperSerial {
         // Also check common paths on Linux/macOS
         #[cfg(unix)]
         {
-            use std::path::Path;
-            let common_paths = [
+            let exact_paths = [
                 "/dev/ttyACM0",
                 "/dev/ttyACM1",
                 "/dev/ttyUSB0",
                 "/dev/cu.usbmodemflip1",
-                "/dev/cu.usbmodem*",
             ];
-            
-            for path in common_paths {
-                if Path::new(path).exists() && !devices.contains(&path.to_string()) {
+            for path in exact_paths {
+                if std::path::Path::new(path).exists() && !devices.contains(&path.to_string()) {
                     devices.push(path.to_string());
+                }
+            }
+            // Glob match for macOS Flipper serial ports
+            if let Ok(entries) = std::fs::read_dir("/dev") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("cu.usbmodem") {
+                        let full = format!("/dev/{}", name);
+                        if !devices.contains(&full) {
+                            devices.push(full);
+                        }
+                    }
                 }
             }
         }

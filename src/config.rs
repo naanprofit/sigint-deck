@@ -157,7 +157,7 @@ impl Default for RayHunterConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            api_url: "http://localhost:8080".to_string(),
+            api_url: default_rayhunter_url(),
             poll_interval_secs: 5,
             alert_on_suspicious: true,
             relay_to_openclaw: true,
@@ -252,7 +252,7 @@ impl Default for LlmConfig {
         Self {
             enabled: false,
             provider: "llamacpp".to_string(),
-            endpoint: "http://localhost:11434".to_string(),
+            endpoint: "http://localhost:8080".to_string(),
             api_key: None,
             model: "default".to_string(),
             max_tokens: 200,
