@@ -2712,41 +2712,60 @@ async fn get_drone_signals() -> impl Responder {
 async fn scan_drones() -> impl Responder {
     let caps = SdrCapabilities::detect();
     
-    if !caps.hackrf {
+    if !caps.hackrf && !caps.rtl_sdr {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "HackRF required for drone detection",
-            "hint": "Drone detection requires wideband scanning (2.4GHz, 5.8GHz)",
-            "alternative": "RTL-SDR can only scan up to ~1.7GHz"
+            "error": "No SDR hardware available for drone detection",
+            "hint": "HackRF covers 2.4/5.8 GHz drone bands. RTL-SDR covers sub-GHz control (868/915 MHz Crossfire/ELRS)."
         }));
     }
     
-    // Scan 2.4 GHz band
-    let output_2_4 = tokio::process::Command::new("hackrf_sweep")
-        .args(&["-f", "2400:2500", "-w", "500000", "-1"])
-        .output()
-        .await;
-    
-    // Scan 5.8 GHz band
-    let output_5_8 = tokio::process::Command::new("hackrf_sweep")
-        .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
-        .output()
-        .await;
-    
     let mut found_signals = Vec::new();
+    let mut bands_scanned = Vec::new();
     
-    // Analyze 2.4 GHz
-    if let Ok(out) = output_2_4 {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        if let Some(signal) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
-            found_signals.push(signal);
+    if caps.hackrf {
+        // Scan 2.4 GHz band (HackRF only)
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "2400:2500", "-w", "500000", "-1"])
+            .output()
+            .await
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(signal) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
+                found_signals.push(signal);
+            }
+            bands_scanned.push("2.4GHz");
+        }
+        
+        // Scan 5.8 GHz band (HackRF only)
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
+            .output()
+            .await
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(signal) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
+                found_signals.push(signal);
+            }
+            bands_scanned.push("5.8GHz");
         }
     }
     
-    // Analyze 5.8 GHz
-    if let Ok(out) = output_5_8 {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        if let Some(signal) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
-            found_signals.push(signal);
+    // RTL-SDR: scan key drone bands (single sweep to avoid device contention)
+    if caps.rtl_sdr {
+        // Combine into one wide scan covering the most important drone frequencies
+        // 860-930 MHz covers: Crossfire, ELRS, Lancet/ZALA, Orlan-10 867-920 MHz
+        if let Ok(out) = tokio::process::Command::new("rtl_power")
+            .args(&["-f", "860M:930M:10k", "-i", "1", "-1"])
+            .output()
+            .await
+        {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if let Some(signal) = detect_drone_signal(&stdout, 860_000_000, 930_000_000, "868-915MHz") {
+                    found_signals.push(signal);
+                }
+                bands_scanned.push("868-915MHz");
+            }
         }
     }
     
@@ -2758,7 +2777,8 @@ async fn scan_drones() -> impl Responder {
         "success": true,
         "signals_found": found_signals.len(),
         "signals": found_signals,
-        "bands_scanned": ["2.4GHz", "5.8GHz"]
+        "bands_scanned": bands_scanned,
+        "hardware_note": if !caps.hackrf { "No HackRF - 2.4/5.8 GHz scanning unavailable. Scanning sub-GHz drone bands only." } else { "Full spectrum drone scan" }
     }))
 }
 
@@ -2804,6 +2824,118 @@ fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> 
     }
 }
 
+/// Analyze wideband spectrum data for periodic peaks that indicate motor EMI
+/// Works with data from rtl_power (24-30 MHz) or hackrf_sweep (1-30 MHz)
+/// Looks for evenly-spaced spectral peaks that match ESC switching harmonics
+fn analyze_emi_spectrum_wideband(output: &str) -> Vec<serde_json::Value> {
+    let mut detections = Vec::new();
+    let mut power_by_freq: std::collections::HashMap<u64, f64> = std::collections::HashMap::new();
+    
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() < 7 { continue; }
+        
+        if let (Ok(hz_low), Ok(hz_step)) = (
+            parts[2].trim().parse::<u64>(),
+            parts[4].trim().parse::<u64>(),
+        ) {
+            for (i, db_str) in parts[6..].iter().enumerate() {
+                if let Ok(power_db) = db_str.trim().parse::<f64>() {
+                    let freq_hz = hz_low + (i as u64 * hz_step);
+                    power_by_freq.insert(freq_hz, power_db);
+                }
+            }
+        }
+    }
+    
+    if power_by_freq.is_empty() { return detections; }
+    
+    // Calculate noise floor
+    let mut all_powers: Vec<f64> = power_by_freq.values().cloned().collect();
+    all_powers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let noise_floor = all_powers[all_powers.len() / 2]; // median
+    let threshold = noise_floor + 10.0; // 10 dB above noise floor
+    
+    // Find peaks above threshold
+    let mut peaks: Vec<(u64, f64)> = power_by_freq.iter()
+        .filter(|(_, &p)| p > threshold)
+        .map(|(&f, &p)| (f, p))
+        .collect();
+    peaks.sort_by_key(|(f, _)| *f);
+    
+    if peaks.len() < 3 { return detections; }
+    
+    // Look for evenly-spaced peaks (harmonic series)
+    // Try different fundamental spacings: 8k, 16k, 24k, 48k, 96k Hz
+    let esc_fundamentals = vec![
+        (8000u64, "Industrial 8kHz", "T-Motor/Hobbywing"),
+        (16000, "DJI/Industrial 16kHz", "DJI stock ESC"),
+        (24000, "BLHeli_S 24kHz", "Common hobby ESC"),
+        (48000, "BLHeli 48kHz", "DShot-enabled ESC"),
+        (96000, "BLHeli_32 96kHz", "High-performance ESC"),
+    ];
+    
+    for (fundamental_hz, name, esc_type) in &esc_fundamentals {
+        let mut harmonics_found = Vec::new();
+        let mut total_power = 0.0;
+        let tolerance = *fundamental_hz / 4; // 25% tolerance
+        
+        // Check many harmonics (for higher-order that fall in scan range)
+        for n in 1..=2000u64 {
+            let expected_hz = fundamental_hz * n;
+            
+            // Only check frequencies in our scan range
+            if let Some(min_freq) = peaks.first().map(|(f, _)| *f) {
+                if expected_hz < min_freq.saturating_sub(tolerance) { continue; }
+            }
+            if let Some(max_freq) = peaks.last().map(|(f, _)| *f) {
+                if expected_hz > max_freq + tolerance { break; }
+            }
+            
+            for (freq, power) in &peaks {
+                if (*freq as i64 - expected_hz as i64).unsigned_abs() <= tolerance {
+                    harmonics_found.push(serde_json::json!({
+                        "harmonic": n,
+                        "frequency_hz": *freq,
+                        "frequency_mhz": *freq as f64 / 1_000_000.0,
+                        "power_db": *power
+                    }));
+                    total_power += power;
+                    break;
+                }
+            }
+        }
+        
+        if harmonics_found.len() >= 3 {
+            let avg_power = total_power / harmonics_found.len() as f64;
+            let confidence = (harmonics_found.len() as f64 / 10.0).min(1.0);
+            let (estimated_motors, estimated_distance) = if avg_power > noise_floor + 30.0 {
+                (4, "< 10m")
+            } else if avg_power > noise_floor + 20.0 {
+                (4, "< 30m")
+            } else {
+                (2, "< 100m")
+            };
+            
+            detections.push(serde_json::json!({
+                "fundamental_khz": *fundamental_hz as f64 / 1000.0,
+                "esc_type": esc_type,
+                "signature_name": name,
+                "harmonics_detected": harmonics_found.len(),
+                "harmonics": harmonics_found,
+                "average_power_db": avg_power,
+                "noise_floor_db": noise_floor,
+                "confidence": confidence,
+                "estimated_motor_count": estimated_motors,
+                "estimated_distance": estimated_distance,
+                "threat_level": if confidence > 0.7 { "high" } else if confidence > 0.4 { "medium" } else { "low" }
+            }));
+        }
+    }
+    
+    detections
+}
+
 // ============================================
 // EMI / Motor Harmonic Detection
 // ============================================
@@ -2822,50 +2954,62 @@ async fn scan_drone_emi() -> impl Responder {
         }));
     }
     
-    // Scan VLF/LF bands for motor EMI (5 kHz to 500 kHz)
-    // Uses direct sampling mode (-E 2) to bypass tuner
-    let output = tokio::process::Command::new("rtl_power")
-        .args(&[
-            "-f", "5k:500k:1k",  // 5 kHz to 500 kHz, 1 kHz steps
-            "-i", "1",           // 1 second integration
-            "-1",                // Single sweep
-            "-E", "2",           // Direct sampling Q-branch
-        ])
-        .output()
-        .await;
+    // Motor EMI detection strategy:
+    // - ESC PWM fundamentals: 8/16/24/48/96 kHz
+    // - Their higher harmonics extend into RTL-SDR tunable range (24+ MHz)
+    // - e.g. 16kHz * 1500th harmonic = 24 MHz, 96kHz * 250th = 24 MHz
+    // - We scan 24-30 MHz looking for periodic spectral peaks
+    // - Also try direct sampling (-E 2) if RTL-SDR supports it
+    // - HackRF can scan from 1 MHz and cover low harmonics directly
     
     let mut emi_detections = Vec::new();
+    let mut scan_method = "none";
     
-    match output {
-        Ok(out) if out.status.success() => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            emi_detections = analyze_emi_spectrum(&stdout);
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            // Try hackrf as fallback
-            if caps.hackrf {
-                let hackrf_out = tokio::process::Command::new("hackrf_sweep")
-                    .args(&["-f", "0:1", "-w", "10000", "-1"])
-                    .output()
-                    .await;
-                
-                if let Ok(hout) = hackrf_out {
-                    let stdout = String::from_utf8_lossy(&hout.stdout);
-                    emi_detections = analyze_emi_spectrum(&stdout);
-                }
-            } else {
-                return HttpResponse::InternalServerError().json(serde_json::json!({
-                    "error": "EMI scan failed",
-                    "details": stderr.to_string(),
-                    "hint": "RTL-SDR may not support direct sampling mode. Try with HackRF."
-                }));
+    // Method 1: Try HackRF first (best for low freq EMI, 1-30 MHz)
+    if caps.hackrf {
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "1:30", "-w", "10000", "-1"])
+            .output()
+            .await
+        {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                emi_detections = analyze_emi_spectrum_wideband(&stdout);
+                scan_method = "hackrf_1_30mhz";
             }
         }
-        Err(e) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("Failed to execute EMI scan: {}", e)
-            }));
+    }
+    
+    // Method 2: RTL-SDR direct sampling (if supported)
+    if emi_detections.is_empty() && caps.rtl_sdr {
+        let output = tokio::process::Command::new("rtl_power")
+            .args(&["-f", "500k:2M:1k", "-i", "2", "-1", "-E", "2"])
+            .output()
+            .await;
+        
+        if let Ok(out) = output {
+            if out.status.success() && !out.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if !stdout.trim().is_empty() {
+                    emi_detections = analyze_emi_spectrum(&stdout);
+                    scan_method = "rtl_direct_sampling";
+                }
+            }
+        }
+    }
+    
+    // Method 3: RTL-SDR normal mode scan 24-30 MHz (look for high-order harmonics)
+    if emi_detections.is_empty() && caps.rtl_sdr {
+        if let Ok(out) = tokio::process::Command::new("rtl_power")
+            .args(&["-f", "24M:30M:1k", "-i", "2", "-1"])
+            .output()
+            .await
+        {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                emi_detections = analyze_emi_spectrum_wideband(&stdout);
+                scan_method = "rtl_24_30mhz";
+            }
         }
     }
     
@@ -2879,7 +3023,7 @@ async fn scan_drone_emi() -> impl Responder {
         "success": true,
         "emi_signals_found": emi_detections.len(),
         "emi_signals": emi_detections,
-        "scan_range_khz": [5, 500],
+        "scan_method": scan_method,
         "detection_method": "motor_esc_harmonics",
         "description": "Detects electronic noise from drone ESC/motor switching frequencies"
     }))
@@ -2986,137 +3130,137 @@ fn analyze_emi_spectrum(output: &str) -> Vec<serde_json::Value> {
 /// Full combined scan: RF + EMI
 async fn scan_drones_full() -> impl Responder {
     let caps = SdrCapabilities::detect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
     
     let mut results = serde_json::json!({
         "success": true,
         "rf_scan": null,
         "emi_scan": null,
         "combined_detections": [],
-        "detection_summary": {
-            "rf_signals": 0,
-            "emi_signals": 0,
-            "confirmed_drones": 0
-        }
+        "detection_summary": { "rf_signals": 0, "emi_signals": 0, "confirmed_drones": 0 }
     });
     
-    // RF Scan (2.4 GHz + 5.8 GHz)
+    // === RF Scan ===
     let mut rf_signals = Vec::new();
+    let mut rf_bands = Vec::new();
+    
     if caps.hackrf {
-        // 2.4 GHz
-        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-            .args(&["-f", "2400:2500", "-w", "500000", "-1"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(sig) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
-                rf_signals.push(sig);
+        for (range, start_hz, end_hz, band, tool) in [
+            ("2400:2500", 2_400_000_000u64, 2_500_000_000u64, "2.4GHz", "hackrf_sweep"),
+            ("5650:5950", 5_650_000_000u64, 5_950_000_000u64, "5.8GHz", "hackrf_sweep"),
+        ] {
+            if let Ok(out) = tokio::process::Command::new(tool)
+                .args(&["-f", range, "-w", "500000", "-1"]).output().await
+            {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if let Some(mut sig) = detect_drone_signal(&stdout, start_hz, end_hz, band) {
+                        sig["first_seen"] = serde_json::json!(now);
+                        sig["last_seen"] = serde_json::json!(now);
+                        rf_signals.push(sig);
+                    }
+                    rf_bands.push(band);
+                }
             }
         }
-        
-        // 5.8 GHz
-        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-            .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(sig) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
-                rf_signals.push(sig);
-            }
-        }
-        
-        results["rf_scan"] = serde_json::json!({
-            "success": true,
-            "signals": rf_signals.clone(),
-            "bands_scanned": ["2.4GHz", "5.8GHz"]
-        });
-    } else {
-        results["rf_scan"] = serde_json::json!({
-            "success": false,
-            "error": "HackRF not available"
-        });
     }
     
-    // EMI Scan (motor harmonics)
-    let mut emi_signals = Vec::new();
+    // RTL-SDR sub-GHz bands
     if caps.rtl_sdr {
-        if let Ok(out) = tokio::process::Command::new("rtl_power")
-            .args(&["-f", "5k:500k:1k", "-i", "1", "-1", "-E", "2"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            emi_signals = analyze_emi_spectrum(&stdout);
+        for (range, start_hz, end_hz, band) in [
+            ("860M:880M:10k", 860_000_000u64, 880_000_000u64, "868MHz"),
+            ("905M:930M:10k", 905_000_000u64, 930_000_000u64, "915MHz"),
+        ] {
+            if let Ok(out) = tokio::process::Command::new("rtl_power")
+                .args(&["-f", range, "-i", "1", "-1"]).output().await
+            {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if let Some(mut sig) = detect_drone_signal(&stdout, start_hz, end_hz, band) {
+                        sig["first_seen"] = serde_json::json!(now);
+                        sig["last_seen"] = serde_json::json!(now);
+                        rf_signals.push(sig);
+                    }
+                    rf_bands.push(band);
+                }
+            }
         }
-        
-        results["emi_scan"] = serde_json::json!({
-            "success": true,
-            "signals": emi_signals.clone(),
-            "range_khz": [5, 500]
-        });
-    } else {
-        results["emi_scan"] = serde_json::json!({
-            "success": false,
-            "error": "RTL-SDR not available for EMI detection"
-        });
     }
     
-    // Combine detections
-    let mut combined = Vec::new();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    results["rf_scan"] = serde_json::json!({
+        "success": !rf_bands.is_empty(),
+        "signals": rf_signals.clone(),
+        "bands_scanned": rf_bands
+    });
     
-    // If both RF and EMI detected - high confidence
+    // === EMI Scan (multiple methods) ===
+    let mut emi_signals = Vec::new();
+    let mut emi_method = "none";
+    
+    // Try HackRF low-band first
+    if caps.hackrf {
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", "1:30", "-w", "10000", "-1"]).output().await
+        {
+            if out.status.success() && !out.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                emi_signals = analyze_emi_spectrum_wideband(&stdout);
+                if !emi_signals.is_empty() { emi_method = "hackrf_1_30mhz"; }
+            }
+        }
+    }
+    
+    // Fallback: RTL-SDR 24-30 MHz
+    if emi_signals.is_empty() && caps.rtl_sdr {
+        if let Ok(out) = tokio::process::Command::new("rtl_power")
+            .args(&["-f", "24M:30M:1k", "-i", "2", "-1"]).output().await
+        {
+            if out.status.success() && !out.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                emi_signals = analyze_emi_spectrum_wideband(&stdout);
+                if !emi_signals.is_empty() { emi_method = "rtl_24_30mhz"; }
+            }
+        }
+    }
+    
+    // Add timestamps to EMI detections
+    for sig in &mut emi_signals {
+        sig["first_seen"] = serde_json::json!(now);
+        sig["last_seen"] = serde_json::json!(now);
+    }
+    
+    results["emi_scan"] = serde_json::json!({
+        "success": !emi_signals.is_empty() || emi_method != "none",
+        "signals": emi_signals.clone(),
+        "method": emi_method
+    });
+    
+    // === Combine detections ===
+    let mut combined = Vec::new();
+    
     if !rf_signals.is_empty() && !emi_signals.is_empty() {
         combined.push(serde_json::json!({
             "id": format!("drone_confirmed_{}", now),
-            "detection_method": "rf_and_emi",
-            "confidence": 0.95,
-            "rf_signals": rf_signals,
-            "emi_signatures": emi_signals,
-            "threat_level": "high",
-            "description": "CONFIRMED: Drone detected via both RF transmission and motor EMI",
-            "recommendations": [
-                "Drone is actively transmitting (control/video link active)",
-                "Motors are running - drone is airborne or about to take off",
-                "Consider visual confirmation"
-            ]
+            "detection_method": "rf_and_emi", "confidence": 0.95,
+            "rf_signals": rf_signals, "emi_signatures": emi_signals,
+            "threat_level": "high", "first_seen": now, "last_seen": now,
+            "description": "CONFIRMED: Drone detected via both RF and motor EMI"
         }));
-    } 
-    // RF only
-    else if !rf_signals.is_empty() {
+    } else if !rf_signals.is_empty() {
         combined.push(serde_json::json!({
             "id": format!("drone_rf_{}", now),
-            "detection_method": "rf_only",
-            "confidence": 0.7,
-            "rf_signals": rf_signals,
-            "threat_level": "medium",
-            "description": "Possible drone detected via RF transmission",
-            "recommendations": [
-                "RF signal detected in drone frequency bands",
-                "Could be drone control/video link or other 2.4/5.8 GHz device",
-                "EMI detection would increase confidence"
-            ]
+            "detection_method": "rf_only", "confidence": 0.7,
+            "rf_signals": rf_signals, "threat_level": "medium",
+            "first_seen": now, "last_seen": now,
+            "description": "Possible drone detected via RF transmission"
         }));
-    }
-    // EMI only (drone may be in autonomous/GPS mode)
-    else if !emi_signals.is_empty() {
+    } else if !emi_signals.is_empty() {
         combined.push(serde_json::json!({
             "id": format!("drone_emi_{}", now),
-            "detection_method": "emi_only",
-            "confidence": 0.6,
-            "emi_signatures": emi_signals,
-            "threat_level": "medium",
-            "description": "Possible drone detected via motor EMI signatures",
-            "recommendations": [
-                "Motor/ESC electromagnetic interference detected",
-                "Drone may be in autonomous/GPS mode with minimal RF",
-                "Or drone could be on ground with motors spinning",
-                "RF detection would increase confidence"
-            ]
+            "detection_method": "emi_only", "confidence": 0.6,
+            "emi_signatures": emi_signals, "threat_level": "medium",
+            "first_seen": now, "last_seen": now,
+            "description": "Possible drone detected via motor EMI"
         }));
     }
     
@@ -3129,18 +3273,9 @@ async fn scan_drones_full() -> impl Responder {
     });
     
     // Update global state
-    {
-        let mut signals = DRONE_SIGNALS.lock().unwrap();
-        *signals = rf_signals;
-    }
-    {
-        let mut emi = EMI_SIGNALS.lock().unwrap();
-        *emi = emi_signals.iter().map(|s| s.clone()).collect();
-    }
-    {
-        let mut detections = COMBINED_DRONE_DETECTIONS.lock().unwrap();
-        *detections = combined;
-    }
+    { let mut s = DRONE_SIGNALS.lock().unwrap(); *s = rf_signals; }
+    { let mut e = EMI_SIGNALS.lock().unwrap(); *e = emi_signals; }
+    { let mut d = COMBINED_DRONE_DETECTIONS.lock().unwrap(); *d = combined; }
     
     HttpResponse::Ok().json(results)
 }
@@ -3508,14 +3643,16 @@ pub async fn get_database_stats(
 // ============================================
 
 static DRONE_MONITOR_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static DRONE_SCAN_COUNT: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
+static DRONE_LAST_SCAN: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(0));
 
 async fn start_drone_monitor() -> impl Responder {
     let caps = SdrCapabilities::detect();
     
-    if !caps.hackrf {
+    if !caps.hackrf && !caps.rtl_sdr {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "HackRF required for continuous drone monitoring",
-            "hint": "Drone detection requires wideband scanning (2.4GHz, 5.8GHz)"
+            "error": "No SDR hardware available",
+            "hint": "HackRF scans 2.4/5.8 GHz. RTL-SDR scans 868/915 MHz + EMI."
         }));
     }
     
@@ -3532,57 +3669,158 @@ async fn start_drone_monitor() -> impl Responder {
         let mut running = DRONE_MONITOR_RUNNING.lock().unwrap();
         *running = true;
     }
+    {
+        let mut count = DRONE_SCAN_COUNT.lock().unwrap();
+        *count = 0;
+    }
     
-    // Spawn continuous monitoring task
+    let has_hackrf = caps.hackrf;
+    let has_rtl = caps.rtl_sdr;
+    
+    let mut bands_available = Vec::new();
+    if has_hackrf { bands_available.extend(["2.4GHz", "5.8GHz"]); }
+    if has_rtl { bands_available.extend(["868MHz", "915MHz", "EMI"]); }
+    let bands_list = bands_available.clone();
+    
     tokio::spawn(async move {
         while {
             let running = DRONE_MONITOR_RUNNING.lock().unwrap();
             *running
         } {
-            // Scan 2.4 GHz band
-            if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-                .args(&["-f", "2400:2500", "-w", "500000", "-1"])
-                .output()
-                .await
-            {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                if let Some(signal) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
-                    let mut signals = DRONE_SIGNALS.lock().unwrap();
-                    // Add or update signal
-                    if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!("2.4GHz"))) {
-                        *existing = signal;
-                    } else {
-                        signals.push(signal);
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+            
+            // === HackRF scans (2.4 GHz + 5.8 GHz) ===
+            if has_hackrf {
+                for (range, start_hz, end_hz, band) in [
+                    ("2400:2500", 2_400_000_000u64, 2_500_000_000u64, "2.4GHz"),
+                    ("5650:5950", 5_650_000_000u64, 5_950_000_000u64, "5.8GHz"),
+                ] {
+                    if !{ *DRONE_MONITOR_RUNNING.lock().unwrap() } { return; }
+                    
+                    if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+                        .args(&["-f", range, "-w", "500000", "-1"])
+                        .output()
+                        .await
+                    {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        if let Some(mut signal) = detect_drone_signal(&stdout, start_hz, end_hz, band) {
+                            signal["first_seen"] = serde_json::json!(now);
+                            signal["last_seen"] = serde_json::json!(now);
+                            
+                            let mut signals = DRONE_SIGNALS.lock().unwrap();
+                            if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!(band))) {
+                                // Preserve first_seen, update last_seen
+                                let fs = existing.get("first_seen").cloned().unwrap_or(serde_json::json!(now));
+                                signal["first_seen"] = fs;
+                                signal["sightings"] = serde_json::json!(
+                                    existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+                                );
+                                *existing = signal;
+                            } else {
+                                signal["sightings"] = serde_json::json!(1);
+                                signals.push(signal);
+                            }
+                        }
                     }
                 }
             }
             
-            // Scan 5.8 GHz band
-            if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-                .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
-                .output()
-                .await
-            {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                if let Some(signal) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
-                    let mut signals = DRONE_SIGNALS.lock().unwrap();
-                    if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!("5.8GHz"))) {
-                        *existing = signal;
-                    } else {
-                        signals.push(signal);
+            // === RTL-SDR scans (military UHF + sub-GHz + L-band + EMI) ===
+            if has_rtl {
+                // Targeted drone bands (narrow enough for fast scans)
+                for (range, start_hz, end_hz, band) in [
+                    ("320M:400M:100k", 320_000_000u64, 400_000_000u64, "UHF-Mil"),  // Orlan, CH-3A, NATO
+                    ("860M:930M:10k",  860_000_000u64, 930_000_000u64, "868-915MHz"), // Crossfire, ELRS, Lancet
+                    ("1200M:1300M:50k", 1_200_000_000u64, 1_300_000_000u64, "L-band"), // Mohajer, Orlan, Heron
+                ] {
+                    if !{ *DRONE_MONITOR_RUNNING.lock().unwrap() } { return; }
+                    
+                    if let Ok(out) = tokio::process::Command::new("rtl_power")
+                        .args(&["-f", range, "-i", "1", "-1"])
+                        .output()
+                        .await
+                    {
+                        if out.status.success() {
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            if let Some(mut signal) = detect_drone_signal(&stdout, start_hz, end_hz, band) {
+                                signal["first_seen"] = serde_json::json!(now);
+                                signal["last_seen"] = serde_json::json!(now);
+                                
+                                let mut signals = DRONE_SIGNALS.lock().unwrap();
+                                if let Some(existing) = signals.iter_mut().find(|s| s.get("band") == Some(&serde_json::json!(band))) {
+                                    let fs = existing.get("first_seen").cloned().unwrap_or(serde_json::json!(now));
+                                    signal["first_seen"] = fs;
+                                    signal["sightings"] = serde_json::json!(
+                                        existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+                                    );
+                                    *existing = signal;
+                                } else {
+                                    signal["sightings"] = serde_json::json!(1);
+                                    signals.push(signal);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // EMI scan (24-30 MHz, look for motor harmonics)
+                if !{ *DRONE_MONITOR_RUNNING.lock().unwrap() } { return; }
+                
+                if let Ok(out) = tokio::process::Command::new("rtl_power")
+                    .args(&["-f", "24M:30M:1k", "-i", "2", "-1"])
+                    .output()
+                    .await
+                {
+                    if out.status.success() {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        let emi_results = analyze_emi_spectrum_wideband(&stdout);
+                        if !emi_results.is_empty() {
+                            let mut emi = EMI_SIGNALS.lock().unwrap();
+                            for mut sig in emi_results {
+                                sig["first_seen"] = serde_json::json!(now);
+                                sig["last_seen"] = serde_json::json!(now);
+                                
+                                let sig_name = sig.get("signature_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                if let Some(existing) = emi.iter_mut().find(|e| {
+                                    e.get("signature_name").and_then(|v| v.as_str()).unwrap_or("") == sig_name
+                                }) {
+                                    let fs = existing.get("first_seen").cloned().unwrap_or(serde_json::json!(now));
+                                    sig["first_seen"] = fs;
+                                    sig["sightings"] = serde_json::json!(
+                                        existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+                                    );
+                                    *existing = sig;
+                                } else {
+                                    sig["sightings"] = serde_json::json!(1);
+                                    emi.push(sig);
+                                }
+                            }
+                        }
                     }
                 }
             }
             
-            // Sleep between scans
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            {
+                let mut count = DRONE_SCAN_COUNT.lock().unwrap();
+                *count += 1;
+            }
+            {
+                let mut last = DRONE_LAST_SCAN.lock().unwrap();
+                *last = now;
+            }
+            
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         }
     });
     
     HttpResponse::Ok().json(serde_json::json!({
         "status": "started",
-        "bands": ["2.4GHz", "5.8GHz"],
-        "scan_interval_secs": 5
+        "bands": bands_list,
+        "scan_interval_secs": 3,
+        "hardware": {
+            "hackrf": has_hackrf,
+            "rtl_sdr": has_rtl
+        }
     }))
 }
 
@@ -3590,8 +3828,15 @@ async fn stop_drone_monitor() -> impl Responder {
     let mut running = DRONE_MONITOR_RUNNING.lock().unwrap();
     *running = false;
     
+    let scan_count = { *DRONE_SCAN_COUNT.lock().unwrap() };
+    let signals = { DRONE_SIGNALS.lock().unwrap().len() };
+    let emi = { EMI_SIGNALS.lock().unwrap().len() };
+    
     HttpResponse::Ok().json(serde_json::json!({
-        "status": "stopped"
+        "status": "stopped",
+        "total_scans": scan_count,
+        "rf_signals_found": signals,
+        "emi_signals_found": emi
     }))
 }
 
@@ -3892,10 +4137,14 @@ use crate::sdr::tscm::{SurveillanceBand, TscmSweepConfig, ThreatCategory, Threat
 static TSCM_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 static TSCM_THREATS: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static TSCM_PROGRESS: Lazy<Mutex<f32>> = Lazy::new(|| Mutex::new(0.0));
+static TSCM_SWEEP_COUNT: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
+static TSCM_CURRENT_BAND: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+static TSCM_LAST_UPDATE: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(0));
 
 #[derive(Deserialize)]
 struct TscmSweepRequest {
     sweep_type: Option<String>, // quick, standard, full, federal
+    continuous: Option<bool>,   // true = loop until stopped
 }
 
 async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
@@ -3924,6 +4173,8 @@ async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
         _ => TscmSweepConfig::standard_sweep(),
     };
     
+    let continuous = body.continuous.unwrap_or(false);
+    
     {
         let mut running = TSCM_RUNNING.lock().unwrap();
         *running = true;
@@ -3936,131 +4187,208 @@ async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
         let mut threats = TSCM_THREATS.lock().unwrap();
         threats.clear();
     }
+    {
+        let mut count = TSCM_SWEEP_COUNT.lock().unwrap();
+        *count = 0;
+    }
     
     let has_hackrf = caps.hackrf;
+    let has_rtl = caps.rtl_sdr;
     let sweep_name = sweep_config.name.clone();
     let bands = sweep_config.bands.clone();
     let bands_count = bands.len();
     let threshold = sweep_config.threshold_db;
     
-    // Spawn sweep task
     tokio::spawn(async move {
         let threat_db = SurveillanceBand::threat_database();
         let total_bands = bands.len();
         
-        for (i, (start_hz, end_hz)) in bands.iter().enumerate() {
-            // Check if still running
-            if !{ *TSCM_RUNNING.lock().unwrap() } {
+        loop {
+            for (i, (start_hz, end_hz)) in bands.iter().enumerate() {
+                if !{ *TSCM_RUNNING.lock().unwrap() } {
+                    return;
+                }
+                
+                // Update progress and current band
+                {
+                    let mut progress = TSCM_PROGRESS.lock().unwrap();
+                    *progress = (i as f32 / total_bands as f32) * 100.0;
+                }
+                {
+                    let mut band = TSCM_CURRENT_BAND.lock().unwrap();
+                    *band = format!("{:.1}-{:.1} MHz", *start_hz as f64 / 1e6, *end_hz as f64 / 1e6);
+                }
+                {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                    let mut last = TSCM_LAST_UPDATE.lock().unwrap();
+                    *last = now;
+                }
+                
+                let start_mhz_f = *start_hz as f64 / 1e6;
+                let end_mhz_f = *end_hz as f64 / 1e6;
+                
+                let scan_result = tscm_scan_band(start_mhz_f, end_mhz_f, has_hackrf, has_rtl).await;
+                
+                if let Some(stdout) = scan_result {
+                    parse_sweep_output(&stdout, threshold, &threat_db);
+                }
+                
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            }
+            
+            // One full sweep complete
+            {
+                let mut count = TSCM_SWEEP_COUNT.lock().unwrap();
+                *count += 1;
+            }
+            {
+                let mut progress = TSCM_PROGRESS.lock().unwrap();
+                *progress = 100.0;
+            }
+            
+            if !continuous {
                 break;
             }
             
-            // Update progress
-            {
-                let mut progress = TSCM_PROGRESS.lock().unwrap();
-                *progress = (i as f32 / total_bands as f32) * 100.0;
+            // Brief pause between sweeps in continuous mode
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+        
+        let mut running = TSCM_RUNNING.lock().unwrap();
+        *running = false;
+    });
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "started",
+        "sweep_type": sweep_name,
+        "bands_to_scan": bands_count,
+        "continuous": continuous
+    }))
+}
+
+/// Execute a single band scan using the best available hardware
+async fn tscm_scan_band(start_mhz: f64, end_mhz: f64, has_hackrf: bool, has_rtl: bool) -> Option<String> {
+    let rtl_min = 24.0;
+    let rtl_max = 1766.0;
+    
+    // HackRF for bands outside RTL-SDR range or if RTL-SDR unavailable
+    if has_hackrf && (start_mhz < rtl_min || end_mhz > rtl_max || !has_rtl) {
+        let h_start = start_mhz.max(1.0) as u32;
+        let h_end = end_mhz.min(6000.0) as u32;
+        if h_start >= h_end { return None; }
+        
+        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+            .args(&["-f", &format!("{}:{}", h_start, h_end), "-w", "100000", "-1"])
+            .output()
+            .await
+        {
+            if out.status.success() && !out.stdout.is_empty() {
+                return Some(String::from_utf8_lossy(&out.stdout).to_string());
             }
-            
-            let start_mhz = (start_hz / 1_000_000) as u32;
-            let end_mhz = (end_hz / 1_000_000) as u32;
-            
-            // Choose scan method based on frequency and hardware
-            let scan_result = if has_hackrf && end_mhz > 1700 {
-                // HackRF for higher frequencies
-                tokio::process::Command::new("hackrf_sweep")
-                    .args(&["-f", &format!("{}:{}", start_mhz, end_mhz), "-w", "100000", "-1"])
-                    .output()
-                    .await
-            } else if start_mhz < 1700 {
-                // RTL-SDR for lower frequencies
-                tokio::process::Command::new("rtl_power")
-                    .args(&["-f", &format!("{}M:{}M:100k", start_mhz, end_mhz), "-i", "1", "-1"])
-                    .output()
-                    .await
-            } else {
-                continue; // Skip bands we can't scan
-            };
-            
-            if let Ok(output) = scan_result {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                
-                // Parse and look for anomalies
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.split(',').collect();
-                    if parts.len() < 7 {
-                        continue;
-                    }
+        }
+    }
+    
+    // RTL-SDR for frequencies in its range
+    if has_rtl && end_mhz >= rtl_min && start_mhz < rtl_max {
+        let r_start = start_mhz.max(rtl_min);
+        let r_end = end_mhz.min(rtl_max);
+        if r_start >= r_end { return None; }
+        let bin = if (r_end - r_start) > 100.0 { "500k" } else if (r_end - r_start) > 10.0 { "100k" } else { "10k" };
+        
+        if let Ok(out) = tokio::process::Command::new("rtl_power")
+            .args(&["-f", &format!("{:.1}M:{:.1}M:{}", r_start, r_end, bin), "-i", "1", "-1"])
+            .output()
+            .await
+        {
+            if out.status.success() && !out.stdout.is_empty() {
+                return Some(String::from_utf8_lossy(&out.stdout).to_string());
+            }
+        }
+    }
+    
+    None
+}
+
+/// Parse sweep output and match against threat database
+fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBand]) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() < 7 { continue; }
+        
+        if let (Ok(hz_low), Ok(hz_step)) = (
+            parts[2].trim().parse::<u64>(),
+            parts[4].trim().parse::<u64>(),
+        ) {
+            for (idx, db_str) in parts[6..].iter().enumerate() {
+                if let Ok(power_db) = db_str.trim().parse::<f64>() {
+                    let freq = hz_low + (idx as u64 * hz_step);
                     
-                    if let (Ok(hz_low), Ok(hz_step)) = (
-                        parts[2].trim().parse::<u64>(),
-                        parts[4].trim().parse::<u64>(),
-                    ) {
-                        for (idx, db_str) in parts[6..].iter().enumerate() {
-                            if let Ok(power_db) = db_str.trim().parse::<f64>() {
-                                let freq = hz_low + (idx as u64 * hz_step);
+                    if power_db > threshold {
+                        for threat_band in threat_db {
+                            if freq >= threat_band.start_hz && freq <= threat_band.end_hz {
+                                let mut threats = TSCM_THREATS.lock().unwrap();
                                 
-                                // Check against threshold
-                                if power_db > threshold {
-                                    // Check if frequency matches known threat
-                                    for threat_band in &threat_db {
-                                        if freq >= threat_band.start_hz && freq <= threat_band.end_hz {
-                                            let threat = serde_json::json!({
-                                                "frequency_hz": freq,
-                                                "frequency_mhz": freq as f64 / 1_000_000.0,
-                                                "power_db": power_db,
-                                                "category": format!("{:?}", threat_band.category),
-                                                "severity": format!("{:?}", threat_band.severity),
-                                                "band_name": threat_band.name,
-                                                "description": threat_band.description,
-                                                "source": threat_band.source,
-                                                "timestamp": std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .unwrap_or_default()
-                                                    .as_secs()
-                                            });
-                                            
-                                            let mut threats = TSCM_THREATS.lock().unwrap();
-                                            threats.push(threat);
-                                        }
+                                // Update existing threat or add new one (by frequency band)
+                                let existing = threats.iter_mut().find(|t| {
+                                    t.get("band_name").and_then(|v| v.as_str()) == Some(&threat_band.name)
+                                });
+                                
+                                if let Some(existing) = existing {
+                                    // Update last_seen and peak power
+                                    existing["last_seen"] = serde_json::json!(now);
+                                    existing["sightings"] = serde_json::json!(
+                                        existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+                                    );
+                                    let prev_peak = existing.get("peak_power_db").and_then(|v| v.as_f64()).unwrap_or(f64::NEG_INFINITY);
+                                    if power_db > prev_peak {
+                                        existing["peak_power_db"] = serde_json::json!(power_db);
+                                        existing["peak_frequency_hz"] = serde_json::json!(freq);
                                     }
+                                    existing["power_db"] = serde_json::json!(power_db);
+                                } else {
+                                    threats.push(serde_json::json!({
+                                        "frequency_hz": freq,
+                                        "frequency_mhz": freq as f64 / 1e6,
+                                        "power_db": power_db,
+                                        "peak_power_db": power_db,
+                                        "peak_frequency_hz": freq,
+                                        "category": format!("{:?}", threat_band.category),
+                                        "severity": format!("{:?}", threat_band.severity),
+                                        "band_name": threat_band.name,
+                                        "description": threat_band.description,
+                                        "source": threat_band.source,
+                                        "first_seen": now,
+                                        "last_seen": now,
+                                        "sightings": 1u64
+                                    }));
                                 }
                             }
                         }
                     }
                 }
             }
-            
-            // Brief pause between bands
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
-        
-        // Mark complete
-        {
-            let mut running = TSCM_RUNNING.lock().unwrap();
-            *running = false;
-        }
-        {
-            let mut progress = TSCM_PROGRESS.lock().unwrap();
-            *progress = 100.0;
-        }
-    });
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "started",
-        "sweep_type": sweep_name,
-        "bands_to_scan": bands_count
-    }))
+    }
 }
 
 async fn get_tscm_status() -> impl Responder {
     let running = { *TSCM_RUNNING.lock().unwrap() };
     let progress = { *TSCM_PROGRESS.lock().unwrap() };
     let threats = { TSCM_THREATS.lock().unwrap().clone() };
+    let sweep_count = { *TSCM_SWEEP_COUNT.lock().unwrap() };
+    let current_band = { TSCM_CURRENT_BAND.lock().unwrap().clone() };
+    let last_update = { *TSCM_LAST_UPDATE.lock().unwrap() };
     
     HttpResponse::Ok().json(serde_json::json!({
         "running": running,
         "progress": progress,
         "threats_found": threats.len(),
-        "threats": threats
+        "threats": threats,
+        "sweep_count": sweep_count,
+        "current_band": current_band,
+        "last_update": last_update
     }))
 }
 

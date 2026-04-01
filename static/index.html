@@ -2166,6 +2166,9 @@
                         <option value="full">Full Sweep (1-2 hours)</option>
                         <option value="federal">Federal Threat Sweep (Extended)</option>
                     </select>
+                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
+                        <input type="checkbox" id="tscmContinuous"> Continuous
+                    </label>
                     <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start Sweep</button>
                     <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
                 </div>
@@ -2197,6 +2200,14 @@
                     <div class="status-card">
                         <span class="status-label">Threats Found</span>
                         <span class="status-value" id="tscmThreatsFound">0</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Sweeps</span>
+                        <span class="status-value" id="tscmSweepCount">0</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Scanning</span>
+                        <span class="status-value" id="tscmCurrentBand" style="font-size:0.75rem;">--</span>
                     </div>
                 </div>
             </div>
@@ -2231,15 +2242,18 @@
                 <div class="sdr-section-header">
                     <h4>🚁 Drone Detection (RF + EMI)</h4>
                 </div>
-                <div class="drone-controls" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <div class="drone-controls" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
                     <button class="action-btn" onclick="scanDronesRf()">📡 RF Scan</button>
                     <button class="action-btn" onclick="scanDronesEmi()">⚡ EMI Scan</button>
-                    <button class="action-btn" onclick="scanDronesFull()">🔍 Full Scan (RF+EMI)</button>
+                    <button class="action-btn" onclick="scanDronesFull()">🔍 Full Scan</button>
+                    <span style="margin: 0 0.25rem; color: var(--text-secondary);">|</span>
+                    <button class="action-btn" id="droneMonitorBtn" onclick="toggleDroneMonitor()">🔄 Continuous</button>
+                    <span id="droneMonitorStatus" style="font-size:0.8rem;color:var(--text-secondary);">Stopped</span>
                 </div>
                 <div class="sdr-info-text" style="margin-top: 0.5rem;">
-                    <strong>RF Scan:</strong> Detects 2.4/5.8 GHz control and video signals<br>
-                    <strong>EMI Scan:</strong> Detects motor/ESC electronic noise (works even if drone is in autonomous mode)<br>
-                    <strong>Full Scan:</strong> Combined detection for highest confidence (~95%)
+                    <strong>RF:</strong> HackRF 2.4/5.8 GHz + RTL-SDR 868/915 MHz |
+                    <strong>EMI:</strong> Motor harmonics 24-30 MHz |
+                    <strong>Continuous:</strong> Loops all scans until stopped
                 </div>
                 <div id="droneDetectionResults" class="device-list" style="margin-top: 0.5rem;">
                     <div class="empty-state">Run a scan to detect nearby drones</div>
@@ -3649,6 +3663,7 @@
         
         async function startTscmSweep() {
             const sweepType = document.getElementById('sweepType').value;
+            const continuous = document.getElementById('tscmContinuous').checked;
             const btn = document.getElementById('tscmStartBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Starting...';
@@ -3661,7 +3676,7 @@
                 const data = await safeFetchJson('/api/sdr/tscm/sweep', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sweep_type: sweepType })
+                    body: JSON.stringify({ sweep_type: sweepType, continuous: continuous })
                 });
                 
                 if (data.error) {
@@ -3671,11 +3686,10 @@
                     return;
                 }
                 
-                document.getElementById('tscmRunning').textContent = 'Running';
+                document.getElementById('tscmRunning').textContent = continuous ? 'Continuous' : 'Running';
                 document.getElementById('tscmRunning').style.color = 'var(--accent-green)';
-                btn.textContent = '⏳ Sweeping...';
+                btn.textContent = continuous ? '🔄 Sweeping...' : '⏳ Sweeping...';
                 
-                // Poll for status
                 pollTscmStatus();
             } catch (e) {
                 alert('Failed to start sweep: ' + e.message);
@@ -3700,7 +3714,7 @@
         
         function pollTscmStatus() {
             if (tscmPollInterval) clearInterval(tscmPollInterval);
-            tscmPollInterval = setInterval(refreshTscmStatus, 2000);
+            tscmPollInterval = setInterval(refreshTscmStatus, 1000); // Poll every 1s for fast updates
         }
         
         async function refreshTscmStatus() {
@@ -3710,10 +3724,19 @@
                 document.getElementById('tscmProgress').textContent = Math.round(data.progress || 0) + '%';
                 document.getElementById('tscmThreatsFound').textContent = data.threats_found || 0;
                 document.getElementById('sweepProgressBar').style.width = (data.progress || 0) + '%';
-                document.getElementById('sweepProgressText').textContent = Math.round(data.progress || 0) + '%';
+                document.getElementById('sweepProgressText').textContent = 
+                    (data.current_band ? `Scanning ${data.current_band}` : '') + 
+                    ` (${Math.round(data.progress || 0)}%)`;
+                
+                // Enhanced status fields
+                const sweepCountEl = document.getElementById('tscmSweepCount');
+                if (sweepCountEl) sweepCountEl.textContent = data.sweep_count || 0;
+                const bandEl = document.getElementById('tscmCurrentBand');
+                if (bandEl) bandEl.textContent = data.current_band || '--';
                 
                 if (data.running) {
-                    document.getElementById('tscmRunning').textContent = 'Running';
+                    const isContinuous = data.sweep_count > 0 || document.getElementById('tscmContinuous').checked;
+                    document.getElementById('tscmRunning').textContent = isContinuous ? `Continuous (Sweep #${(data.sweep_count || 0) + 1})` : 'Running';
                     document.getElementById('tscmRunning').style.color = 'var(--accent-green)';
                 } else {
                     document.getElementById('tscmRunning').textContent = data.progress >= 100 ? 'Complete' : 'Idle';
@@ -3726,7 +3749,6 @@
                     }
                 }
                 
-                // Render threats
                 renderTscmThreats(data.threats || []);
             } catch (e) {
                 console.error('TSCM status failed:', e);
@@ -3741,17 +3763,25 @@
                 return;
             }
             
-            container.innerHTML = threats.map(t => `
-                <div class="threat-item" style="border-left: 3px solid ${getSeverityColor(t.severity)};">
+            container.innerHTML = threats.map(t => {
+                const firstSeen = t.first_seen ? new Date(t.first_seen * 1000).toLocaleTimeString() : '';
+                const lastSeen = t.last_seen ? new Date(t.last_seen * 1000).toLocaleTimeString() : '';
+                const sightings = t.sightings || 1;
+                return `
+                <div class="threat-item" style="border-left: 3px solid ${getSeverityColor(t.severity)}; padding: 0.5rem; margin: 0.25rem 0; background: var(--bg-tertiary); border-radius: 4px;">
                     <div class="threat-info">
-                        <div class="threat-name">⚠️ ${t.band_name || 'Unknown'}</div>
+                        <div class="threat-name" style="font-weight:bold;">⚠️ ${t.band_name || 'Unknown'}</div>
                         <div class="threat-details">
                             ${(t.frequency_hz / 1000000).toFixed(3)} MHz • ${t.power_db?.toFixed(1) || '--'} dB
+                            ${t.peak_power_db ? `(peak: ${t.peak_power_db.toFixed(1)} dB)` : ''}
                         </div>
                         <div class="threat-category">${t.category || '--'} • ${t.severity || '--'}</div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem;">
+                            ${firstSeen ? `First: ${firstSeen}` : ''} ${lastSeen ? `| Last: ${lastSeen}` : ''} | Sightings: ${sightings}
+                        </div>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
         
         function getSeverityColor(severity) {
@@ -3856,6 +3886,50 @@
             }
         }
         
+        // Continuous drone monitoring
+        let droneMonitorRunning = false;
+        let dronePollInterval = null;
+        
+        async function toggleDroneMonitor() {
+            const btn = document.getElementById('droneMonitorBtn');
+            const status = document.getElementById('droneMonitorStatus');
+            
+            if (droneMonitorRunning) {
+                // Stop
+                try {
+                    const data = await safeFetchJson('/api/sdr/drone/stop', { method: 'POST' });
+                    droneMonitorRunning = false;
+                    btn.textContent = '🔄 Continuous';
+                    status.textContent = `Stopped (${data.total_scans || 0} scans, ${data.rf_signals_found || 0} RF, ${data.emi_signals_found || 0} EMI)`;
+                    status.style.color = 'var(--text-secondary)';
+                    if (dronePollInterval) { clearInterval(dronePollInterval); dronePollInterval = null; }
+                } catch (e) {
+                    status.textContent = 'Stop failed: ' + e.message;
+                }
+            } else {
+                // Start
+                try {
+                    const data = await safeFetchJson('/api/sdr/drone/start', { method: 'POST' });
+                    droneMonitorRunning = true;
+                    btn.textContent = '⏹️ Stop Monitor';
+                    status.textContent = `Running (${(data.bands || []).join(', ')})`;
+                    status.style.color = 'var(--accent-green)';
+                    // Poll for results
+                    dronePollInterval = setInterval(async () => {
+                        try {
+                            const signals = await safeFetchJson('/api/sdr/drone/signals');
+                            if (signals && signals.length > 0) {
+                                renderDroneResults({ signals: signals }, 'RF');
+                            }
+                        } catch (e) { /* ignore polling errors */ }
+                    }, 3000);
+                } catch (e) {
+                    status.textContent = 'Start failed: ' + e.message;
+                    status.style.color = 'var(--accent-red)';
+                }
+            }
+        }
+
         function renderDroneResults(data, scanType) {
             const container = document.getElementById('droneDetectionResults');
             

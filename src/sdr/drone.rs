@@ -40,6 +40,7 @@ pub enum DroneSignalType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DroneType {
+    // Consumer/Commercial
     DjiMavic,
     DjiPhantom,
     DjiMini,
@@ -51,12 +52,37 @@ pub enum DroneType {
     FpvRacing,
     FixedWing,
     Custom,
+    // Military - Russia
+    Orlan10,        // Orlan-10 recon (Russia)
+    Lancet,         // ZALA Lancet loitering munition
+    ZalaUav,        // ZALA recon variants
+    Orion,          // Kronshtadt Orion MALE
+    Supercam,       // Supercam-350
+    // Military - Iran
+    ShahedOwa,      // Shahed-136/Geran-2 one-way attack
+    Mohajer,        // Mohajer-6/10 ISTAR
+    // Military - China
+    ChUav,          // CH-3A/CH-4B/CH-5 series
+    // Military - Israel
+    Hermes,         // Elbit Hermes 450/900
+    Heron,          // IAI Heron
+    Harop,          // IAI Harop loitering munition
+    // Military - USA
+    Predator,       // MQ-1/MQ-9 Reaper
+    GlobalHawk,     // RQ-4
+    ScanEagle,      // Insitu ScanEagle
+    AndurilGhost,   // Anduril Ghost-X
+    Switchblade,    // AeroVironment Switchblade
+    // Military - Turkey
+    Bayraktar,      // Bayraktar TB2/TB3/Akinci
+    // Military - Other
+    MilitaryGeneric,
     Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DroneProtocol {
-    DjiOcusync,     // DJI OcuSync 1/2/3
+    DjiOcusync,     // DJI OcuSync 1/2/3/4
     DjiLightbridge, // DJI Lightbridge
     Wifi,           // Standard WiFi
     Analog5_8,      // Analog 5.8GHz video
@@ -64,6 +90,11 @@ pub enum DroneProtocol {
     Expresslrs,     // ExpressLRS
     FrSky,          // FrSky protocols
     Spektrum,       // Spektrum DSMX
+    MilitaryUhf,    // Military UHF datalink
+    MilitarySBand,  // Military S-band (2-4 GHz)
+    MilitaryCBand,  // Military C-band (4-6 GHz)
+    MilitaryLBand,  // Military L-band (1-2 GHz)
+    SatcomKuBand,   // Satellite comm Ku-band
     Unknown,
 }
 
@@ -139,11 +170,329 @@ impl DroneSignature {
             },
             // WiFi-based drones
             Self {
-                center_freq_hz: 2_437_000_000, // Channel 6
+                center_freq_hz: 2_437_000_000,
                 bandwidth_hz: 20_000_000,
                 protocol: DroneProtocol::Wifi,
                 signal_type: DroneSignalType::Control,
                 description: "WiFi drone control".to_string(),
+            },
+            // ExpressLRS 868 MHz (EU)
+            Self {
+                center_freq_hz: 868_000_000,
+                bandwidth_hz: 500_000,
+                protocol: DroneProtocol::Expresslrs,
+                signal_type: DroneSignalType::Control,
+                description: "ExpressLRS 868MHz EU".to_string(),
+            },
+            // ExpressLRS 915 MHz (US)
+            Self {
+                center_freq_hz: 915_000_000,
+                bandwidth_hz: 26_000_000,
+                protocol: DroneProtocol::Expresslrs,
+                signal_type: DroneSignalType::Control,
+                description: "ExpressLRS 915MHz US (902-928)".to_string(),
+            },
+            // FrSky R9 868/915 MHz
+            Self {
+                center_freq_hz: 868_000_000,
+                bandwidth_hz: 5_000_000,
+                protocol: DroneProtocol::FrSky,
+                signal_type: DroneSignalType::Control,
+                description: "FrSky R9 868MHz".to_string(),
+            },
+            
+            // =========================================================
+            // MILITARY DRONE SIGNATURES
+            // Sources: Armada International, TRADOC, open-source intel
+            // =========================================================
+            
+            // --- RUSSIA ---
+            
+            // Orlan-10 (most deployed Russian recon UAV)
+            // Frequencies: 200-450 MHz, 867-872 MHz, 915-920 MHz, 1.08-1.3 GHz, 2.2-2.7 GHz
+            Self {
+                center_freq_hz: 325_000_000,
+                bandwidth_hz: 250_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Orlan-10 UHF datalink (200-450 MHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 870_000_000,
+                bandwidth_hz: 5_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Telemetry,
+                description: "Orlan-10 / Russian UAV 867-872 MHz".to_string(),
+            },
+            Self {
+                center_freq_hz: 917_000_000,
+                bandwidth_hz: 5_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Telemetry,
+                description: "Orlan-10 / Russian UAV 915-920 MHz".to_string(),
+            },
+            Self {
+                center_freq_hz: 1_190_000_000,
+                bandwidth_hz: 220_000_000,
+                protocol: DroneProtocol::MilitaryLBand,
+                signal_type: DroneSignalType::Control,
+                description: "Orlan-10 L-band (1.08-1.3 GHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 2_450_000_000,
+                bandwidth_hz: 500_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "Orlan-10 S-band datalink (2.2-2.7 GHz)".to_string(),
+            },
+            
+            // Lancet / ZALA / Kub (loitering munitions)
+            // 867-872 MHz, 902-928 MHz, 1.561-1.616 GHz (GLONASS), 2.2-2.4 GHz
+            Self {
+                center_freq_hz: 915_000_000,
+                bandwidth_hz: 26_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Lancet/ZALA/Kub 902-928 MHz".to_string(),
+            },
+            Self {
+                center_freq_hz: 2_300_000_000,
+                bandwidth_hz: 200_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "Lancet/ZALA S-band (2.2-2.4 GHz)".to_string(),
+            },
+            
+            // Orion MALE UAV
+            Self {
+                center_freq_hz: 905_000_000,
+                bandwidth_hz: 30_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Orion UAV 890-920 MHz".to_string(),
+            },
+            Self {
+                center_freq_hz: 4_950_000_000,
+                bandwidth_hz: 1_500_000_000,
+                protocol: DroneProtocol::MilitaryCBand,
+                signal_type: DroneSignalType::Control,
+                description: "Orion C-band SATCOM (4.2-5.7 GHz)".to_string(),
+            },
+            
+            // Granat-1/2/3/4
+            Self {
+                center_freq_hz: 1_180_000_000,
+                bandwidth_hz: 200_000_000,
+                protocol: DroneProtocol::MilitaryLBand,
+                signal_type: DroneSignalType::Control,
+                description: "Granat L-band (1.08-1.28 GHz)".to_string(),
+            },
+            
+            // --- IRAN ---
+            
+            // Shahed-136/Geran-2 (one-way attack, uses GPS/GLONASS + inertial)
+            // Primarily autonomous but may use cellular/900 MHz for RTK
+            Self {
+                center_freq_hz: 900_000_000,
+                bandwidth_hz: 50_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Shahed-136/Geran-2 UHF control".to_string(),
+            },
+            
+            // Mohajer-6 (L-band datalink)
+            Self {
+                center_freq_hz: 1_400_000_000,
+                bandwidth_hz: 400_000_000,
+                protocol: DroneProtocol::MilitaryLBand,
+                signal_type: DroneSignalType::Control,
+                description: "Mohajer-6 L-band (1.2-1.6 GHz)".to_string(),
+            },
+            
+            // --- CHINA ---
+            
+            // CH-3A
+            Self {
+                center_freq_hz: 357_000_000,
+                bandwidth_hz: 65_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "CH-3A UHF (325-390 MHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 655_000_000,
+                bandwidth_hz: 270_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "CH-3A UHF (520-790 MHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 2_475_000_000,
+                bandwidth_hz: 350_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "CH-3A S-band (2.3-2.65 GHz)".to_string(),
+            },
+            
+            // CH-4B (Chinese MALE, exported widely)
+            Self {
+                center_freq_hz: 850_000_000,
+                bandwidth_hz: 100_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "CH-4B UHF (800-900 MHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 5_150_000_000,
+                bandwidth_hz: 1_900_000_000,
+                protocol: DroneProtocol::MilitaryCBand,
+                signal_type: DroneSignalType::Control,
+                description: "CH-4B C-band (4.2-6.1 GHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 10_000_000_000,
+                bandwidth_hz: 4_000_000_000,
+                protocol: DroneProtocol::SatcomKuBand,
+                signal_type: DroneSignalType::Control,
+                description: "CH-4B X-band SATCOM (8-12 GHz)".to_string(),
+            },
+            
+            // --- TURKEY ---
+            
+            // Bayraktar TB2/TB3 (uses both LOS and SATCOM)
+            Self {
+                center_freq_hz: 900_000_000,
+                bandwidth_hz: 50_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Bayraktar UHF LOS control".to_string(),
+            },
+            Self {
+                center_freq_hz: 1_800_000_000,
+                bandwidth_hz: 400_000_000,
+                protocol: DroneProtocol::MilitaryLBand,
+                signal_type: DroneSignalType::Control,
+                description: "Bayraktar L-band datalink".to_string(),
+            },
+            Self {
+                center_freq_hz: 5_000_000_000,
+                bandwidth_hz: 1_000_000_000,
+                protocol: DroneProtocol::MilitaryCBand,
+                signal_type: DroneSignalType::Control,
+                description: "Bayraktar C-band SATCOM".to_string(),
+            },
+            
+            // --- USA ---
+            
+            // MQ-9 Reaper / MQ-1 Predator (C-band LOS + Ku-band SATCOM)
+            Self {
+                center_freq_hz: 5_000_000_000,
+                bandwidth_hz: 1_000_000_000,
+                protocol: DroneProtocol::MilitaryCBand,
+                signal_type: DroneSignalType::Control,
+                description: "Predator/Reaper C-band LOS".to_string(),
+            },
+            Self {
+                center_freq_hz: 14_500_000_000,
+                bandwidth_hz: 2_000_000_000,
+                protocol: DroneProtocol::SatcomKuBand,
+                signal_type: DroneSignalType::Control,
+                description: "Predator/Reaper Ku-band SATCOM".to_string(),
+            },
+            
+            // Anduril Ghost-X (resilient mesh, freq-agile)
+            Self {
+                center_freq_hz: 900_000_000,
+                bandwidth_hz: 28_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Anduril Ghost 902-928 MHz mesh".to_string(),
+            },
+            Self {
+                center_freq_hz: 2_440_000_000,
+                bandwidth_hz: 83_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "Anduril Ghost 2.4 GHz mesh".to_string(),
+            },
+            
+            // AeroVironment Switchblade
+            Self {
+                center_freq_hz: 900_000_000,
+                bandwidth_hz: 26_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Switchblade UHF (902-928 MHz)".to_string(),
+            },
+            
+            // ScanEagle
+            Self {
+                center_freq_hz: 2_300_000_000,
+                bandwidth_hz: 200_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "ScanEagle S-band datalink".to_string(),
+            },
+            
+            // --- ISRAEL ---
+            
+            // Elbit Hermes 450/900 (S-band LOS)
+            Self {
+                center_freq_hz: 2_300_000_000,
+                bandwidth_hz: 200_000_000,
+                protocol: DroneProtocol::MilitarySBand,
+                signal_type: DroneSignalType::Control,
+                description: "Hermes 450/900 S-band LOS".to_string(),
+            },
+            
+            // IAI Heron (SATCOM Ku-band + LOS)
+            Self {
+                center_freq_hz: 1_300_000_000,
+                bandwidth_hz: 200_000_000,
+                protocol: DroneProtocol::MilitaryLBand,
+                signal_type: DroneSignalType::Control,
+                description: "Heron L-band LOS datalink".to_string(),
+            },
+            Self {
+                center_freq_hz: 14_500_000_000,
+                bandwidth_hz: 2_000_000_000,
+                protocol: DroneProtocol::SatcomKuBand,
+                signal_type: DroneSignalType::Control,
+                description: "Heron Ku-band SATCOM".to_string(),
+            },
+            
+            // IAI Harop loitering munition
+            Self {
+                center_freq_hz: 900_000_000,
+                bandwidth_hz: 50_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "Harop UHF datalink".to_string(),
+            },
+            
+            // --- GENERAL MILITARY BANDS ---
+            
+            // NATO STANAG 4586 common datalink bands
+            Self {
+                center_freq_hz: 350_000_000,
+                bandwidth_hz: 100_000_000,
+                protocol: DroneProtocol::MilitaryUhf,
+                signal_type: DroneSignalType::Control,
+                description: "NATO UHF tactical drone band (300-400 MHz)".to_string(),
+            },
+            Self {
+                center_freq_hz: 1_575_420_000,
+                bandwidth_hz: 15_000_000,
+                protocol: DroneProtocol::Unknown,
+                signal_type: DroneSignalType::Gps,
+                description: "GPS L1 (all GPS-guided drones)".to_string(),
+            },
+            Self {
+                center_freq_hz: 1_602_000_000,
+                bandwidth_hz: 20_000_000,
+                protocol: DroneProtocol::Unknown,
+                signal_type: DroneSignalType::Gps,
+                description: "GLONASS L1 (Russian/Iranian drones)".to_string(),
             },
         ]
     }
@@ -342,7 +691,8 @@ impl DroneDetector {
 fn guess_drone_type(protocol: &DroneProtocol) -> Option<DroneType> {
     match protocol {
         DroneProtocol::DjiOcusync | DroneProtocol::DjiLightbridge => Some(DroneType::DjiMavic),
-        DroneProtocol::Analog5_8 | DroneProtocol::Expresslrs | DroneProtocol::Crossfire => Some(DroneType::FpvRacing),
+        DroneProtocol::Analog5_8 | DroneProtocol::Expresslrs | DroneProtocol::Crossfire | DroneProtocol::FrSky => Some(DroneType::FpvRacing),
+        DroneProtocol::MilitaryUhf | DroneProtocol::MilitaryLBand | DroneProtocol::MilitarySBand | DroneProtocol::MilitaryCBand | DroneProtocol::SatcomKuBand => Some(DroneType::MilitaryGeneric),
         _ => None,
     }
 }
