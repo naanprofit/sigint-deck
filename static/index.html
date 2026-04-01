@@ -1754,6 +1754,9 @@
         <button class="tab-btn" data-tab="settings" tabindex="0">
             ⚙️ Settings
         </button>
+        <button class="tab-btn" data-tab="about" tabindex="0">
+            ℹ️ About
+        </button>
     </nav>
 
     <div class="tab-content active" id="tab-wifi">
@@ -2317,6 +2320,100 @@
             <h3>Configuration</h3>
             <button id="saveConfig" class="action-btn save-btn">Save Settings</button>
             <span id="saveStatus" style="margin-left: 1rem;"></span>
+        </div>
+    </div>
+
+    <!-- About Tab -->
+    <div class="tab-content" id="tab-about">
+        <div style="max-width: 800px; margin: 0 auto; padding: 1rem;">
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h2 style="font-size: 1.8rem; margin-bottom: 0.25rem;">SIGINT-Deck</h2>
+                <div style="color: var(--accent-green); font-size: 1.1rem; font-weight: bold;" id="aboutVersion">v0.2.3</div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.25rem;">Portable Signals Intelligence &amp; Security Monitoring</div>
+                <div style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;" id="aboutDeviceName">--</div>
+            </div>
+
+            <div style="background: var(--bg-secondary); border: 1px solid var(--accent-red); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--accent-red); margin: 0 0 0.75rem 0; font-size: 1rem;">⚠️ RESEARCH &amp; ENTERTAINMENT USE ONLY</h3>
+                <p style="color: var(--text-primary); font-size: 0.85rem; line-height: 1.5; margin: 0 0 0.75rem 0;">
+                    <strong>This software is provided strictly for research, educational, and entertainment purposes only.</strong>
+                    It is an experimental research tool and is NOT designed, intended, tested, validated, or certified for use in any
+                    situation where human life, safety, health, or physical security depends on its correct operation.
+                </p>
+                <p style="color: var(--accent-red); font-size: 0.85rem; line-height: 1.5; margin: 0 0 0.75rem 0; font-weight: bold;">
+                    DO NOT RELY ON THIS SOFTWARE IN ANY LIFE-THREATENING, SAFETY-CRITICAL, OR EMERGENCY SITUATION.
+                </p>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; margin: 0 0 0.75rem 0;">
+                    This software may produce false positives, false negatives, inaccurate readings, missed detections, and erroneous
+                    analyses. RF detection, spectrum analysis, drone detection, IMSI catcher detection, TSCM sweeps, and all other
+                    features are experimental and have NOT been validated against any safety standard. Detection confidence levels,
+                    distance estimates, threat classifications, and AI-generated analyses are approximations only.
+                </p>
+            </div>
+
+            <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">Complete Assumption of Risk</h3>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; margin: 0 0 0.5rem 0;">
+                    By using this software, you unconditionally and irrevocably:
+                </p>
+                <ul style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.6; padding-left: 1.25rem; margin: 0 0 0.5rem 0;">
+                    <li><strong>Accept full and sole responsibility</strong> for any and all consequences of your use</li>
+                    <li><strong>Completely and forever absolve</strong> the developer(s), author(s), contributor(s), and distributor(s) from any and all claims, damages, and liabilities</li>
+                    <li><strong>Acknowledge</strong> that if you use this software outside your legal rights or justifications, you bear exclusive and total responsibility</li>
+                    <li><strong>Waive any and all claims</strong> regardless of legal theory, including negligence, strict liability, product liability, or breach of warranty</li>
+                </ul>
+                <p style="color: var(--text-secondary); font-size: 0.75rem; line-height: 1.5; margin: 0.5rem 0 0 0; font-style: italic;">
+                    Authorized use is limited to: security research, educational purposes, network administration on networks you own,
+                    counter-surveillance of your own property, licensed amateur radio operations, and TSCM by licensed professionals.
+                    See <a href="https://github.com/naanprofit/sigint-deck/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">LEGAL.md</a> for full terms.
+                </p>
+            </div>
+
+            <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">Version Details</h3>
+                <table style="width: 100%; font-size: 0.8rem; color: var(--text-secondary);">
+                    <tr><td style="padding: 4px 8px; color: var(--text-secondary);">Version</td><td style="padding: 4px 8px; color: var(--text-primary);" id="aboutVersionDetail">--</td></tr>
+                    <tr><td style="padding: 4px 8px; color: var(--text-secondary);">Device</td><td style="padding: 4px 8px; color: var(--text-primary);" id="aboutDevice">--</td></tr>
+                    <tr><td style="padding: 4px 8px; color: var(--text-secondary);">Uptime</td><td style="padding: 4px 8px; color: var(--text-primary);" id="aboutUptime">--</td></tr>
+                    <tr><td style="padding: 4px 8px; color: var(--text-secondary);">License</td><td style="padding: 4px 8px; color: var(--text-primary);">GPL-3.0-or-later</td></tr>
+                    <tr><td style="padding: 4px 8px; color: var(--text-secondary);">Repository</td><td style="padding: 4px 8px;"><a href="https://github.com/naanprofit/sigint-deck" target="_blank" style="color:var(--accent-blue);">github.com/naanprofit/sigint-deck</a></td></tr>
+                </table>
+            </div>
+
+            <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">v0.2.3 Changelog Highlights</h3>
+                <ul style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.6; padding-left: 1.25rem; margin: 0;">
+                    <li><strong>TSCM Threat Grouping</strong> &mdash; signals at the same frequency grouped as one emitter; consumer device false-positive suggestions</li>
+                    <li><strong>14 SDR Bug Fixes</strong> &mdash; rtl_power frequency format, EMI direct sampling, async cell tower scanning, hardware detection</li>
+                    <li><strong>Consumer Device Database</strong> &mdash; 50+ benign devices (baby monitors, doorbells, key fobs, etc.) for false-positive identification</li>
+                    <li><strong>Browser Audio Streaming</strong> &mdash; live FM/AM/SSB audio from SDR to browser via Web Audio API</li>
+                    <li><strong>Distance Estimation</strong> &mdash; free-space path loss model for all RF detections</li>
+                    <li><strong>RayHunter API Rewrite</strong> &mdash; direct HTTP API to EFF RayHunter with auto ADB forwarding</li>
+                    <li><strong>Military Drone Signatures</strong> &mdash; RF profiles from 9 countries including Shahed, Lancet, Bayraktar, Switchblade</li>
+                    <li><strong>Continuous Scanning</strong> &mdash; TSCM and drone monitors run until stopped with contact tracking</li>
+                    <li><strong>LLM API Key Support</strong> &mdash; OpenAI, Anthropic, Ollama, llama.cpp, LMStudio with Bearer token auth</li>
+                </ul>
+            </div>
+
+            <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">Hardware Support</h3>
+                <div id="aboutHardware" style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6;">
+                    Loading...
+                </div>
+            </div>
+
+            <div style="text-align: center; padding: 1rem; color: var(--text-secondary); font-size: 0.75rem;">
+                <p style="margin: 0.25rem 0;">Built with Rust, Actix, pcap, btleplug, and open-source SDR tools</p>
+                <p style="margin: 0.25rem 0;">
+                    <a href="https://github.com/naanprofit/sigint-deck/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">Legal</a> &bull;
+                    <a href="https://github.com/naanprofit/sigint-deck/blob/main/CREDITS.md" target="_blank" style="color:var(--accent-blue);">Credits</a> &bull;
+                    <a href="https://github.com/naanprofit/sigint-deck/blob/main/CHANGELOG.md" target="_blank" style="color:var(--accent-blue);">Changelog</a> &bull;
+                    <a href="https://github.com/naanprofit/sigint-deck/blob/main/KNOWN_ISSUES.md" target="_blank" style="color:var(--accent-blue);">Known Issues</a>
+                </p>
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">
+                    &copy; 2026 naanprofit &bull; GPL-3.0-or-later
+                </p>
+            </div>
         </div>
     </div>
 
@@ -4369,6 +4466,44 @@
             } catch (e) { /* ignore */ }
         }
         loadSavedSettings();
+
+        // About page population
+        async function loadAboutPage() {
+            try {
+                const status = await safeFetchJson('/api/status');
+                if (status) {
+                    document.getElementById('aboutVersion').textContent = 'v' + (status.version || '?');
+                    document.getElementById('aboutVersionDetail').textContent = status.version || '--';
+                    document.getElementById('aboutDevice').textContent = status.device_name || '--';
+                    document.getElementById('aboutDeviceName').textContent = status.device_name || '';
+                    const up = status.uptime_seconds || 0;
+                    const h = Math.floor(up / 3600);
+                    const m = Math.floor((up % 3600) / 60);
+                    document.getElementById('aboutUptime').textContent = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                }
+            } catch (e) { /* ignore */ }
+            try {
+                const sdr = await safeFetchJson('/api/sdr/status');
+                if (sdr) {
+                    const caps = sdr.capabilities || {};
+                    const devs = sdr.devices || [];
+                    let html = '<ul style="padding-left:1.25rem;margin:0;">';
+                    if (devs.length > 0) {
+                        devs.forEach(d => { html += `<li><strong>${d.name}</strong> (${d.device_type})</li>`; });
+                    }
+                    html += `<li>RTL-SDR: ${caps.rtl_sdr ? '✅' : '❌'}</li>`;
+                    html += `<li>HackRF: ${caps.hackrf ? '✅' : '❌'}</li>`;
+                    html += `<li>LimeSDR: ${caps.limesdr ? '✅' : '❌'}</li>`;
+                    html += `<li>RTL-433: ${caps.rtl_433 ? '✅' : '❌'}</li>`;
+                    html += `<li>kalibrate: ${caps.kalibrate ? '✅' : '❌'}</li>`;
+                    html += '</ul>';
+                    document.getElementById('aboutHardware').innerHTML = html;
+                }
+            } catch (e) {
+                document.getElementById('aboutHardware').textContent = 'Could not load hardware info';
+            }
+        }
+        loadAboutPage();
 
         async function checkLlmStatus() {
             const statusEl = document.getElementById('llmStatus');

@@ -6,14 +6,11 @@ Portable signals intelligence and security monitoring for Steam Deck.
 
 ## ⚠️ LEGAL DISCLAIMER AND TERMS OF USE
 
-> **IMPORTANT: BY DOWNLOADING, INSTALLING, OR USING THIS SOFTWARE, YOU AGREE TO THE FOLLOWING TERMS:**
+> **IMPORTANT: BY DOWNLOADING, INSTALLING, OR USING THIS SOFTWARE, YOU AGREE TO THE FOLLOWING TERMS.**
 
-### Regulatory Compliance Notice
+### Research and Entertainment Only
 
-This software interacts with radio frequency spectrum and wireless communications. Its use is subject to strict regulation by:
-
-- **United States**: FCC regulations (47 CFR), Electronic Communications Privacy Act (18 U.S.C. § 2511), Computer Fraud and Abuse Act (18 U.S.C. § 1030)
-- **International**: Equivalent regulatory bodies and laws in your jurisdiction
+**This software is provided strictly for research, educational, and entertainment purposes only.** It is an experimental tool and is NOT designed, tested, or certified for use in any life-threatening, safety-critical, or emergency situation. Do not rely on this software for personal safety decisions. It may produce false positives, false negatives, inaccurate readings, and erroneous analyses.
 
 ### Authorized Use Only
 
@@ -36,19 +33,28 @@ You **SHALL NOT** use this software to:
 - ❌ Conduct stalking, harassment, or illegal surveillance
 - ❌ Intercept cellular, cordless, or similar protected communications
 
-### Liability Waiver
+### Complete Assumption of Risk and Release of Liability
 
 **THE AUTHORS AND CONTRIBUTORS OF THIS SOFTWARE SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES ARISING FROM YOUR USE OF THIS SOFTWARE.**
 
-You agree to **indemnify and hold harmless** the authors from any claims arising from your use of this software. You accept **full responsibility** for ensuring your use complies with all applicable laws in your jurisdiction.
+By using this software, you **unconditionally and irrevocably**:
+
+1. **Accept full and sole responsibility** for all consequences of your use
+2. **Completely absolve** the developer(s), contributor(s), and distributor(s) from any and all claims, damages, and liabilities of every kind
+3. **Acknowledge** that if you use this software outside your legal rights or justifications, you bear exclusive responsibility and the developer(s) bear none
+4. **Agree to indemnify and hold harmless** the authors from any claims arising from your use
+
+### Regulatory Compliance
+
+This software interacts with radio frequency spectrum and wireless communications, subject to strict regulation by the FCC (47 CFR), ECPA (18 U.S.C. § 2511), CFAA (18 U.S.C. § 1030), and equivalent international regulatory bodies. **You are solely responsible for legal compliance in your jurisdiction.**
 
 ### Acceptance
 
 **By downloading, installing, or using this software, you certify that:**
 1. You have read and understood the full [LEGAL.md](LEGAL.md) document
-2. You will use this software only for lawful purposes
-3. You have obtained all necessary legal authorizations for your intended use
-4. You accept all risks and liabilities associated with your use
+2. You will use this software only for lawful, authorized purposes
+3. You accept this is research/entertainment software, not a safety device
+4. You accept all risks and absolve the developers of all liability
 
 **If you do not agree to these terms, do not download, install, or use this software.**
 
