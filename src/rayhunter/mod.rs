@@ -81,17 +81,31 @@ impl RayHunterClient {
             .and_then(|p| p.trim_matches('/').parse::<u16>().ok())
             .unwrap_or(8081);
         
-        // Check if ADB device is connected
-        let adb_check = tokio::process::Command::new("adb")
+        // Use full path and ensure HOME is set for ADB auth keys
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
+        let adb_path = if std::path::Path::new("/usr/bin/adb").exists() {
+            "/usr/bin/adb"
+        } else if std::path::Path::new("/usr/local/bin/adb").exists() {
+            "/usr/local/bin/adb"
+        } else {
+            "adb"
+        };
+        
+        let adb_check = tokio::process::Command::new(adb_path)
+            .env("HOME", &home)
+            .env("ANDROID_SDK_HOME", &home)
             .args(&["devices"])
             .output().await;
         
-        let has_device = match adb_check {
+        let has_device = match &adb_check {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
-                stdout.lines().filter(|l| l.contains("device") && !l.contains("List")).count() > 0
+                stdout.lines().any(|l| l.ends_with("\tdevice") || l.contains("\tdevice"))
             }
-            Err(_) => false,
+            Err(e) => {
+                debug!("ADB command failed: {}", e);
+                false
+            }
         };
         
         if !has_device {
@@ -99,14 +113,26 @@ impl RayHunterClient {
             return false;
         }
         
-        // Set up port forward
-        let fwd = tokio::process::Command::new("adb")
+        let fwd = tokio::process::Command::new(adb_path)
+            .env("HOME", &home)
+            .env("ANDROID_SDK_HOME", &home)
             .args(&["forward", &format!("tcp:{}", port), "tcp:8080"])
             .output().await;
         
         match fwd {
-            Ok(out) if out.status.success() => true,
-            _ => false,
+            Ok(out) if out.status.success() => {
+                info!("ADB forward tcp:{} -> tcp:8080 established", port);
+                true
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                debug!("ADB forward failed: {}", stderr);
+                false
+            }
+            Err(e) => {
+                debug!("ADB forward error: {}", e);
+                false
+            }
         }
     }
 

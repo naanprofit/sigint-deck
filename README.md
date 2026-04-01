@@ -82,10 +82,27 @@ You agree to **indemnify and hold harmless** the authors from any claims arising
   - Device type classification (Phone, Wearable, SmartLight, etc.)
   - Lost mode and separated device detection
 
-- **Tracker Intelligence**
-  - Detects Find My network devices (Apple AirTags)
-  - Extracts status byte, counter, key hints
-  - Identifies lost mode and separated-from-owner states
+- **SDR Spectrum Analysis**
+  - RTL-SDR, HackRF One, LimeSDR support
+  - Spectrum analyzer with band presets
+  - TSCM sweep (counter-surveillance) with threat database
+  - Continuous drone RF monitoring (military + commercial bands)
+  - RTL-433 ISM band device decoding
+  - Cell tower scanning via kalibrate-rtl
+  - Browser audio streaming (FM/AM/SSB)
+  - Distance estimation via free-space path loss model
+
+- **IMSI Catcher Detection** (RayHunter)
+  - EFF RayHunter integration via direct HTTP API
+  - Automatic ADB port forwarding
+  - Real-time monitoring with audible alerts
+  - QMDL recording start/stop control
+
+- **Drone Detection**
+  - RF signature detection for military drones (9 countries)
+  - EMI harmonic analysis (ESC/PWM patterns)
+  - Combined RF+EMI correlation for high confidence
+  - Continuous scanning with contact tracking
 
 - **AI/LLM Integration** (Optional)
   - Device analysis via local or cloud LLM
@@ -204,6 +221,9 @@ Features:
 | 3 | New devices |
 | 4 | Alerts |
 | 5 | Attacks |
+| 6 | SDR / Radio |
+| 7 | TSCM |
+| 8 | IMSI / RayHunter |
 | N | Toggle Ninja Mode |
 
 ## PCAP Capture
@@ -274,6 +294,16 @@ journalctl --user -u sigint-deck -f
 | `/api/pcap/start` | POST | Start PCAP |
 | `/api/pcap/stop` | POST | Stop PCAP |
 | `/api/geofence/home` | POST | Set geofence |
+| `/api/sdr/status` | GET | SDR hardware detection |
+| `/api/sdr/spectrum` | POST | Spectrum scan |
+| `/api/sdr/radio/tune` | POST | Tune radio |
+| `/api/sdr/radio/stream` | GET | PCM audio stream |
+| `/api/sdr/tscm/sweep` | POST | TSCM sweep |
+| `/api/sdr/drone/scan` | POST | Drone RF scan |
+| `/api/sdr/rtl433/devices` | GET | RTL-433 decoded devices |
+| `/api/rayhunter/status` | GET | RayHunter IMSI status |
+| `/api/rayhunter/start-recording` | POST | Start QMDL recording |
+| `/api/rayhunter/stop-recording` | POST | Stop QMDL recording |
 
 ## OUI Database
 
@@ -447,6 +477,21 @@ systemctl --user enable --now rayhunter-adb
 | 2G Downgrade | Forced downgrade to insecure 2G |
 | LTE SIB 6/7 Downgrade | Suspicious broadcast of 2G/3G priorities |
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [INSTALL.md](docs/INSTALL.md) | Full installation guide for Pi and Deck |
+| [BUILD.md](docs/BUILD.md) | Build from source (native and cross-compile) |
+| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Known bugs, workarounds, and hardware quirks |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and all fixes |
+| [LEGAL.md](LEGAL.md) | Legal compliance and regulatory guidance |
+| [CREDITS.md](CREDITS.md) | Open-source credits and attributions |
+| [DRONE_DETECTION.md](docs/DRONE_DETECTION.md) | Drone detection methodology and frequencies |
+| [TSCM-THREAT-DATABASE.md](docs/TSCM-THREAT-DATABASE.md) | TSCM threat signatures |
+| [HARDWARE-BOM.md](docs/HARDWARE-BOM.md) | Bill of materials |
+| [PI_REQUIREMENTS.md](docs/PI_REQUIREMENTS.md) | Pi hardware requirements |
+
 ## Legal Notice
 
 This software is for **authorized security research only**.
@@ -454,6 +499,7 @@ This software is for **authorized security research only**.
 - Only use on networks/devices you own or have permission to monitor
 - Unauthorized interception is illegal in most jurisdictions
 - You are solely responsible for legal compliance
+- See [LEGAL.md](LEGAL.md) for complete regulatory guidance
 
 ## Support
 
@@ -463,7 +509,7 @@ If you find SIGINT-Deck useful, consider supporting development:
 
 ## License
 
-MIT License
+GPL-3.0-or-later. See [LICENSE](LICENSE) for full text.
 
 ## Repository
 
