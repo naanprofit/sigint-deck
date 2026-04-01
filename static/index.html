@@ -3799,7 +3799,10 @@
                 const data = await safeFetchJson('/api/sdr/tscm/status');
                 
                 document.getElementById('tscmProgress').textContent = Math.round(data.progress || 0) + '%';
-                document.getElementById('tscmThreatsFound').textContent = data.threats_found || 0;
+                const emitters = data.unique_emitters || data.threats_found || 0;
+                const totalRules = data.total_rules_matched || emitters;
+                document.getElementById('tscmThreatsFound').textContent = 
+                    totalRules > emitters ? `${emitters} signals (${totalRules} rules)` : emitters;
                 document.getElementById('sweepProgressBar').style.width = (data.progress || 0) + '%';
                 document.getElementById('sweepProgressText').textContent = 
                     (data.current_band ? `Scanning ${data.current_band}` : '') + 
@@ -3840,22 +3843,50 @@
                 return;
             }
             
-            container.innerHTML = threats.map(t => {
+            container.innerHTML = threats.map((t, idx) => {
                 const firstSeen = t.first_seen ? new Date(t.first_seen * 1000).toLocaleTimeString() : '';
                 const lastSeen = t.last_seen ? new Date(t.last_seen * 1000).toLocaleTimeString() : '';
                 const sightings = t.sightings || 1;
+                const rulesCount = t.matched_rules_count || 1;
+                const rules = t.matched_rules || [];
+                const distStr = t.distance_description ? ` | ~${t.distance_description}` : '';
+
+                let rulesHtml = '';
+                if (rules.length > 1) {
+                    const otherRules = rules.slice(1);
+                    rulesHtml = `
+                        <details style="margin-top:0.25rem;font-size:0.75rem;">
+                            <summary style="cursor:pointer;color:var(--text-secondary);">
+                                +${otherRules.length} other rule${otherRules.length > 1 ? 's' : ''} matched this signal
+                            </summary>
+                            <div style="padding:0.25rem 0 0 0.5rem;color:var(--text-secondary);">
+                                ${otherRules.map(r => `<div style="margin:2px 0;">
+                                    <span style="color:${getSeverityColor(r.severity)};">&#9679;</span>
+                                    ${r.name} (${r.category} / ${r.severity})
+                                </div>`).join('')}
+                            </div>
+                            <div style="padding:0.25rem 0 0 0.5rem;font-style:italic;color:var(--text-secondary);">
+                                These rules overlap at this frequency. Likely 1 emitter, not ${rulesCount}.
+                            </div>
+                        </details>`;
+                }
+
                 return `
                 <div class="threat-item" style="border-left: 3px solid ${getSeverityColor(t.severity)}; padding: 0.5rem; margin: 0.25rem 0; background: var(--bg-tertiary); border-radius: 4px;">
                     <div class="threat-info">
-                        <div class="threat-name" style="font-weight:bold;">⚠️ ${t.band_name || 'Unknown'}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div class="threat-name" style="font-weight:bold;">⚠️ ${t.band_name || 'Unknown'}</div>
+                            ${rulesCount > 1 ? `<span style="font-size:0.7rem;background:var(--bg-secondary);padding:2px 6px;border-radius:8px;color:var(--text-secondary);">${rulesCount} rules</span>` : ''}
+                        </div>
                         <div class="threat-details">
-                            ${(t.frequency_hz / 1000000).toFixed(3)} MHz • ${t.power_db?.toFixed(1) || '--'} dB
+                            ${(t.frequency_hz / 1000000).toFixed(3)} MHz &bull; ${t.power_db?.toFixed(1) || '--'} dB
                             ${t.peak_power_db ? `(peak: ${t.peak_power_db.toFixed(1)} dB)` : ''}
                         </div>
-                        <div class="threat-category">${t.category || '--'} • ${t.severity || '--'}</div>
+                        <div class="threat-category">${t.category || '--'} &bull; ${t.severity || '--'}${distStr}</div>
                         <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem;">
                             ${firstSeen ? `First: ${firstSeen}` : ''} ${lastSeen ? `| Last: ${lastSeen}` : ''} | Sightings: ${sightings}
                         </div>
+                        ${rulesHtml}
                     </div>
                 </div>
             `}).join('');
@@ -4306,6 +4337,13 @@
                     if (s.llm.model) {
                         const el = document.getElementById('llmModel');
                         if (el) el.value = s.llm.model;
+                    }
+                    // Show indicator if an API key is saved (we don't expose the actual key)
+                    if (s.llm.has_api_key) {
+                        const keyEl = document.getElementById('llmApiKey');
+                        if (keyEl && !keyEl.value) {
+                            keyEl.placeholder = '••••••••  (key saved)';
+                        }
                     }
                 }
             } catch (e) { /* ignore */ }

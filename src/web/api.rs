@@ -1336,6 +1336,11 @@ async fn get_settings() -> impl Responder {
                             .and_then(|l| l.get("model"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("llama3"),
+                        "has_api_key": config.get("llm")
+                            .and_then(|l| l.get("api_key"))
+                            .and_then(|v| v.as_str())
+                            .map(|k| !k.is_empty())
+                            .unwrap_or(false),
                     },
                     "power": {
                         "sleep_inhibit": config.get("power")
@@ -4610,72 +4615,149 @@ for i in range(0,len(powers),max(1,len(powers)//128)):
     }
 }
 
-/// Parse sweep output and match against threat database
+/// Frequency grouping tolerance: signals within 1 MHz are considered the same emitter
+const FREQ_GROUP_TOLERANCE_HZ: u64 = 1_000_000;
+
+/// Severity rank for sorting (higher = more severe)
+fn severity_rank(s: &str) -> u8 {
+    match s {
+        "Critical" => 4,
+        "High" => 3,
+        "Medium" => 2,
+        "Low" => 1,
+        _ => 0,
+    }
+}
+
+/// Parse sweep output and match against threat database.
+/// Groups detections by frequency (within tolerance) so a single signal
+/// that matches multiple overlapping threat bands appears as ONE grouped
+/// entry with the highest-severity label as primary and all matching
+/// rules listed under `matched_rules`.
 fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBand]) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-    
+
+    // Phase 1: Collect all above-threshold (freq, power) hits from CSV
+    struct RawHit { freq_hz: u64, power_db: f64 }
+    let mut raw_hits: Vec<RawHit> = Vec::new();
+
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 7 { continue; }
-        
         if let (Ok(hz_low), Ok(hz_step)) = (
             parts[2].trim().parse::<u64>(),
             parts[4].trim().parse::<u64>(),
         ) {
             for (idx, db_str) in parts[6..].iter().enumerate() {
                 if let Ok(power_db) = db_str.trim().parse::<f64>() {
-                    let freq = hz_low + (idx as u64 * hz_step);
-                    
                     if power_db > threshold {
-                        for threat_band in threat_db {
-                            if freq >= threat_band.start_hz && freq <= threat_band.end_hz {
-                                let mut threats = TSCM_THREATS.lock().unwrap();
-                                
-                                // Update existing threat or add new one (by frequency band)
-                                let existing = threats.iter_mut().find(|t| {
-                                    t.get("band_name").and_then(|v| v.as_str()) == Some(&threat_band.name)
-                                });
-                                
-                                if let Some(existing) = existing {
-                                    // Update last_seen and peak power
-                                    existing["last_seen"] = serde_json::json!(now);
-                                    existing["sightings"] = serde_json::json!(
-                                        existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
-                                    );
-                                    let prev_peak = existing.get("peak_power_db").and_then(|v| v.as_f64()).unwrap_or(f64::NEG_INFINITY);
-                                    if power_db > prev_peak {
-                                        existing["peak_power_db"] = serde_json::json!(power_db);
-                                        existing["peak_frequency_hz"] = serde_json::json!(freq);
-                                    }
-                                    existing["power_db"] = serde_json::json!(power_db);
-                                } else {
-                                    let freq_mhz = freq as f64 / 1e6;
-                                    let (dist_min, dist_max, dist_desc) = estimate_distance(power_db, freq_mhz);
-                                    threats.push(serde_json::json!({
-                                        "frequency_hz": freq,
-                                        "frequency_mhz": freq_mhz,
-                                        "power_db": power_db,
-                                        "peak_power_db": power_db,
-                                        "peak_frequency_hz": freq,
-                                        "category": format!("{:?}", threat_band.category),
-                                        "severity": format!("{:?}", threat_band.severity),
-                                        "band_name": threat_band.name,
-                                        "description": threat_band.description,
-                                        "source": threat_band.source,
-                                        "first_seen": now,
-                                        "last_seen": now,
-                                        "sightings": 1u64,
-                                        "estimated_distance_m": format!("{:.0} - {:.0}", dist_min, dist_max),
-                                        "distance_description": dist_desc,
-                                        "distance_min_m": dist_min,
-                                        "distance_max_m": dist_max
-                                    }));
-                                }
-                            }
-                        }
+                        let freq = hz_low + (idx as u64 * hz_step);
+                        raw_hits.push(RawHit { freq_hz: freq, power_db });
                     }
                 }
             }
+        }
+    }
+
+    if raw_hits.is_empty() { return; }
+
+    // Phase 2: Group hits by frequency (within tolerance) and find best power per group
+    struct FreqGroup { center_hz: u64, peak_hz: u64, peak_db: f64 }
+    let mut groups: Vec<FreqGroup> = Vec::new();
+    for hit in &raw_hits {
+        if let Some(g) = groups.iter_mut().find(|g| {
+            (hit.freq_hz as i64 - g.center_hz as i64).unsigned_abs() <= FREQ_GROUP_TOLERANCE_HZ
+        }) {
+            if hit.power_db > g.peak_db {
+                g.peak_db = hit.power_db;
+                g.peak_hz = hit.freq_hz;
+            }
+        } else {
+            groups.push(FreqGroup {
+                center_hz: hit.freq_hz,
+                peak_hz: hit.freq_hz,
+                peak_db: hit.power_db,
+            });
+        }
+    }
+
+    // Phase 3: For each frequency group, find ALL matching threat bands
+    let mut threats = TSCM_THREATS.lock().unwrap();
+
+    for group in &groups {
+        let mut matching_rules: Vec<(&SurveillanceBand, u8)> = Vec::new();
+        for band in threat_db {
+            if group.peak_hz >= band.start_hz && group.peak_hz <= band.end_hz {
+                let sev_str = format!("{:?}", band.severity);
+                matching_rules.push((band, severity_rank(&sev_str)));
+            }
+        }
+        if matching_rules.is_empty() { continue; }
+
+        // Sort by severity descending - highest severity becomes the primary label
+        matching_rules.sort_by(|a, b| b.1.cmp(&a.1));
+        let primary = matching_rules[0].0;
+        let primary_sev = format!("{:?}", primary.severity);
+        let primary_cat = format!("{:?}", primary.category);
+
+        // Build matched_rules list for the UI
+        let rules_json: Vec<serde_json::Value> = matching_rules.iter().map(|(band, _)| {
+            serde_json::json!({
+                "name": band.name,
+                "category": format!("{:?}", band.category),
+                "severity": format!("{:?}", band.severity),
+                "description": band.description,
+            })
+        }).collect();
+
+        // Try to find existing grouped threat at this frequency
+        let existing = threats.iter_mut().find(|t| {
+            if let Some(existing_hz) = t.get("group_center_hz").and_then(|v| v.as_u64()) {
+                (group.center_hz as i64 - existing_hz as i64).unsigned_abs() <= FREQ_GROUP_TOLERANCE_HZ
+            } else {
+                false
+            }
+        });
+
+        if let Some(existing) = existing {
+            existing["last_seen"] = serde_json::json!(now);
+            existing["sightings"] = serde_json::json!(
+                existing.get("sightings").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+            );
+            let prev_peak = existing.get("peak_power_db").and_then(|v| v.as_f64()).unwrap_or(f64::NEG_INFINITY);
+            if group.peak_db > prev_peak {
+                existing["peak_power_db"] = serde_json::json!(group.peak_db);
+                existing["peak_frequency_hz"] = serde_json::json!(group.peak_hz);
+            }
+            existing["power_db"] = serde_json::json!(group.peak_db);
+            // Update matched rules in case new bands were matched
+            existing["matched_rules"] = serde_json::json!(rules_json);
+            existing["matched_rules_count"] = serde_json::json!(rules_json.len());
+        } else {
+            let freq_mhz = group.peak_hz as f64 / 1e6;
+            let (dist_min, dist_max, dist_desc) = estimate_distance(group.peak_db, freq_mhz);
+            threats.push(serde_json::json!({
+                "frequency_hz": group.peak_hz,
+                "frequency_mhz": freq_mhz,
+                "group_center_hz": group.center_hz,
+                "power_db": group.peak_db,
+                "peak_power_db": group.peak_db,
+                "peak_frequency_hz": group.peak_hz,
+                "category": primary_cat,
+                "severity": primary_sev,
+                "band_name": primary.name,
+                "description": primary.description,
+                "source": primary.source,
+                "first_seen": now,
+                "last_seen": now,
+                "sightings": 1u64,
+                "matched_rules": rules_json,
+                "matched_rules_count": matching_rules.len(),
+                "estimated_distance_m": format!("{:.0} - {:.0}", dist_min, dist_max),
+                "distance_description": dist_desc,
+                "distance_min_m": dist_min,
+                "distance_max_m": dist_max
+            }));
         }
     }
 }
@@ -4688,10 +4770,18 @@ async fn get_tscm_status() -> impl Responder {
     let current_band = { TSCM_CURRENT_BAND.lock().unwrap().clone() };
     let last_update = { *TSCM_LAST_UPDATE.lock().unwrap() };
     
+    // Count unique frequency groups (likely distinct emitters)
+    let unique_emitters = threats.len();
+    let total_rules_matched: usize = threats.iter()
+        .map(|t| t.get("matched_rules_count").and_then(|v| v.as_u64()).unwrap_or(1) as usize)
+        .sum();
+
     HttpResponse::Ok().json(serde_json::json!({
         "running": running,
         "progress": progress,
-        "threats_found": threats.len(),
+        "threats_found": unique_emitters,
+        "unique_emitters": unique_emitters,
+        "total_rules_matched": total_rules_matched,
         "threats": threats,
         "sweep_count": sweep_count,
         "current_band": current_band,
