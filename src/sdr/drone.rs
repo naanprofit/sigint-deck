@@ -687,20 +687,20 @@ impl EmiDetector {
         
         // Look for evenly-spaced peaks (harmonic series)
         // Take strongest peaks and check for harmonic relationship
-        let strong_peaks: Vec<_> = peaks.iter().take(10).collect();
+        let strong_peaks: Vec<(u64, f64)> = peaks.iter().take(10).cloned().collect();
         
         for i in 0..strong_peaks.len() {
             let (f1, _) = strong_peaks[i];
             
             // Try this as fundamental and look for harmonics
-            let mut harmonics = vec![*f1 as f64 / 1000.0];
+            let mut harmonics = vec![f1 as f64 / 1000.0];
             let tolerance = self.config.harmonic_tolerance_hz as u64;
             
             for n in 2..=8u64 {
                 let expected = f1 * n;
                 for (freq, _) in &strong_peaks {
-                    if (**freq as i64 - expected as i64).unsigned_abs() <= tolerance * n {
-                        harmonics.push(**freq as f64 / 1000.0);
+                    if (*freq as i64 - expected as i64).unsigned_abs() <= tolerance * n {
+                        harmonics.push(*freq as f64 / 1000.0);
                         break;
                     }
                 }
@@ -713,7 +713,7 @@ impl EmiDetector {
                     .sum::<f64>() / harmonics.len() as f64;
                 
                 return Some(EmiSignature {
-                    fundamental_khz: *f1 as f64 / 1000.0,
+                    fundamental_khz: f1 as f64 / 1000.0,
                     harmonics_detected: harmonics,
                     power_db: avg_power,
                     estimated_motor_count: 4,  // Assume quad

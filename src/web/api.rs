@@ -3920,6 +3920,7 @@ async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
     let has_hackrf = caps.hackrf;
     let sweep_name = sweep_config.name.clone();
     let bands = sweep_config.bands.clone();
+    let bands_count = bands.len();
     let threshold = sweep_config.threshold_db;
     
     // Spawn sweep task
@@ -4026,7 +4027,7 @@ async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "started",
         "sweep_type": sweep_name,
-        "bands_to_scan": bands.len()
+        "bands_to_scan": bands_count
     }))
 }
 
