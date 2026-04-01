@@ -144,13 +144,24 @@ if ! grep -q "blacklist dvb_usb_rtl28xxu" /etc/modprobe.d/blacklist-rtlsdr.conf 
     echo "blacklist rtl2832" | sudo tee -a /etc/modprobe.d/blacklist-rtlsdr.conf
 fi
 
-# SDR udev rules
+# SDR udev rules - use MODE=0666 so any user can access, plus group for system rules
 sudo tee /etc/udev/rules.d/20-rtlsdr.rules > /dev/null << 'UDEV'
-SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", GROUP="plugdev", MODE="0666"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="6089", GROUP="plugdev", MODE="0666"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="601f", GROUP="plugdev", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="6089", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="601f", MODE="0666"
 UDEV
 sudo udevadm control --reload-rules 2>/dev/null || true
+sudo udevadm trigger 2>/dev/null || true
+
+# Add user to SDR device groups (rtlsdr on SteamOS, plugdev on Debian)
+for grp in rtlsdr plugdev dialout; do
+    if getent group "$grp" > /dev/null 2>&1; then
+        sudo usermod -aG "$grp" "$USER" 2>/dev/null || true
+        echo -e "${GREEN}  Added $USER to group $grp${NC}"
+    fi
+done
+echo -e "${YELLOW}  NOTE: Group changes take effect after logout/login or reboot${NC}"
 
 # ============================================
 # Step 5: Install Rust

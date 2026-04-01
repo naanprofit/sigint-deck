@@ -122,6 +122,12 @@ if [[ "$ARCH" == "aarch64" || "$ARCH" == "armv7l" ]]; then
         echo -e "${YELLOW}Could not set capabilities. Run with sudo or set manually:${NC}"
         echo -e "  sudo setcap cap_net_raw,cap_net_admin+eip $INSTALL_DIR/sigint-deck"
     }
+    # Add user to SDR device groups
+    for grp in plugdev rtlsdr bluetooth dialout; do
+        if getent group "$grp" > /dev/null 2>&1; then
+            sudo usermod -aG "$grp" "$USER" 2>/dev/null || true
+        fi
+    done
 fi
 
 echo -e "${GREEN}Installed to $INSTALL_DIR${NC}"

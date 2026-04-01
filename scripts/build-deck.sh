@@ -89,6 +89,13 @@ sudo setcap cap_net_raw,cap_net_admin+eip "$INSTALL_DIR/sigint-deck" 2>/dev/null
     echo -e "${YELLOW}  Could not set capabilities (need sudo). WiFi monitor mode may not work.${NC}"
 }
 
+# Add user to SDR device groups
+for grp in rtlsdr plugdev dialout; do
+    if getent group "$grp" > /dev/null 2>&1; then
+        sudo usermod -aG "$grp" "$USER" 2>/dev/null || true
+    fi
+done
+
 # Copy static files
 cp -r static/ "$INSTALL_DIR/"
 

@@ -4509,17 +4509,18 @@ async fn tscm_scan_band(start_mhz: f64, end_mhz: f64, has_hackrf: bool, has_rtl:
         let h_end = end_mhz.min(6000.0) as u32;
         if h_start >= h_end { return None; }
         
-        // Try hackrf_sweep first
+        // Try hackrf_sweep first (may return non-zero with pipe errors but still produce data)
         if let Ok(out) = tokio::process::Command::new(&resolve("hackrf_sweep"))
             .args(&["-f", &format!("{}:{}", h_start, h_end), "-w", "100000", "-1"])
             .output().await
         {
-            if out.status.success() && !out.stdout.is_empty() {
-                return Some(String::from_utf8_lossy(&out.stdout).to_string());
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if !stdout.is_empty() && stdout.contains(',') {
+                return Some(stdout.to_string());
             }
         }
         // Fallback: hackrf_transfer + FFT
-        tracing::warn!("hackrf_sweep failed for {}-{} MHz, using hackrf_transfer fallback", h_start, h_end);
+        tracing::warn!("hackrf_sweep produced no output for {}-{} MHz, using hackrf_transfer fallback", h_start, h_end);
         let center_hz = ((h_start as u64 + h_end as u64) / 2) * 1_000_000;
         let sr: u64 = 8_000_000;
         let iq_path = format!("/tmp/sigint_tscm_hrf_{}.bin", h_start);
@@ -4543,16 +4544,22 @@ async fn tscm_scan_band(start_mhz: f64, end_mhz: f64, has_hackrf: bool, has_rtl:
         let bin = if (r_end - r_start) > 100.0 { "500k" } else if (r_end - r_start) > 10.0 { "100k" } else { "10k" };
         
         // Try rtl_power first
+        // Note: rtl_power may return exit code 1 due to PLL warnings but still produce
+        // valid CSV data on stdout. Check stdout content regardless of exit code.
         if let Ok(out) = tokio::process::Command::new(&resolve("rtl_power"))
             .args(&["-f", &format!("{:.1}M:{:.1}M:{}", r_start, r_end, bin), "-i", "1", "-1", "-g", "40"])
             .output().await
         {
-            if out.status.success() && !out.stdout.is_empty() {
-                return Some(String::from_utf8_lossy(&out.stdout).to_string());
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if !stdout.is_empty() && stdout.contains(',') {
+                return Some(stdout.to_string());
             }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::debug!("rtl_power {:.0}-{:.0} MHz: exit={}, stdout={} bytes, stderr={}",
+                r_start, r_end, out.status, out.stdout.len(), stderr.lines().last().unwrap_or(""));
         }
         // Fallback: rtl_sdr + FFT
-        tracing::warn!("rtl_power failed for {}-{} MHz, using rtl_sdr fallback", r_start, r_end);
+        tracing::warn!("rtl_power produced no output for {:.0}-{:.0} MHz, using rtl_sdr fallback", r_start, r_end);
         let center_hz = ((r_start as u64 + r_end as u64) / 2) * 1_000_000;
         let bw = ((r_end - r_start) as u64).max(1) * 1_000_000;
         let sr = bw.min(2_400_000).max(1_000_000);

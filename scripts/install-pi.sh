@@ -111,8 +111,14 @@ UDEV
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
-# Add user to required groups
-sudo usermod -aG plugdev,bluetooth,dialout $USER 2>/dev/null || true
+# Add user to all required groups for SDR device access
+for grp in plugdev rtlsdr bluetooth dialout; do
+    if getent group "$grp" > /dev/null 2>&1; then
+        sudo usermod -aG "$grp" "$USER" 2>/dev/null || true
+        echo -e "${GREEN}  Added $USER to group $grp${NC}"
+    fi
+done
+echo -e "${YELLOW}  NOTE: Group changes take effect after logout/login or reboot${NC}"
 
 # ============================================
 # Step 6: Clone/Update Repository
