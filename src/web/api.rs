@@ -3016,16 +3016,28 @@ fn detect_drone_signal(output: &str, start_hz: u64, end_hz: u64, band: &str) -> 
     if max_power > -60.0 {
         let freq_mhz = max_freq as f64 / 1_000_000.0;
         let (dist_min, dist_max, dist_desc) = estimate_distance(max_power, freq_mhz);
+        let threat_level = if max_power > -40.0 { "high" } else if max_power > -50.0 { "medium" } else { "low" };
+
+        // Auto-capture IQ fingerprint for medium/high threat drone signals
+        if threat_level != "low" {
+            auto_capture_signal(
+                freq_mhz,
+                format!("Drone {} signal {:.1} dB @ {:.3} MHz", band, max_power, freq_mhz),
+                "drone".to_string(),
+            );
+        }
+
         Some(serde_json::json!({
             "band": band,
             "frequency_hz": max_freq,
             "frequency_mhz": freq_mhz,
             "power_db": max_power,
             "signal_type": if band == "5.8GHz" { "video" } else { "control" },
-            "threat_level": if max_power > -40.0 { "high" } else if max_power > -50.0 { "medium" } else { "low" },
+            "threat_level": threat_level,
             "estimated_distance": dist_desc,
             "distance_min_m": dist_min,
-            "distance_max_m": dist_max
+            "distance_max_m": dist_max,
+            "fingerprint_captured": threat_level != "low",
         }))
     } else {
         None
@@ -4856,6 +4868,16 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
         } else {
             let freq_mhz = group.peak_hz as f64 / 1e6;
             let (dist_min, dist_max, dist_desc) = estimate_distance(group.peak_db, freq_mhz);
+            // Auto-capture IQ fingerprint for critical/high severity new threats
+            let should_capture = primary_sev == "critical" || primary_sev == "high";
+            if should_capture {
+                auto_capture_signal(
+                    freq_mhz,
+                    format!("TSCM {} [{}] {:.1} dB @ {:.3} MHz", primary.name, primary_sev, group.peak_db, freq_mhz),
+                    "tscm".to_string(),
+                );
+            }
+
             threats.push(serde_json::json!({
                 "frequency_hz": group.peak_hz,
                 "frequency_mhz": freq_mhz,
@@ -4877,7 +4899,8 @@ fn parse_sweep_output(stdout: &str, threshold: f64, threat_db: &[SurveillanceBan
                 "distance_description": dist_desc,
                 "distance_min_m": dist_min,
                 "distance_max_m": dist_max,
-                "possible_benign": consumer_json
+                "possible_benign": consumer_json,
+                "fingerprint_captured": should_capture
             }));
         }
     }
@@ -5021,19 +5044,26 @@ async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder
     let step_khz = query.step_khz.unwrap_or(25.0);
 
     let caps = crate::sdr::SdrCapabilities::detect();
-    let (cmd, args) = if caps.hackrf {
-        ("hackrf_sweep".to_string(), vec![
+
+    // Check for actual binaries, not just hardware presence
+    let hackrf_sweep_cmd = crate::sdr::resolve_sdr_command("hackrf_sweep");
+    let rtl_power_cmd = crate::sdr::resolve_sdr_command("rtl_power");
+    let has_hackrf_sweep = std::path::Path::new(&hackrf_sweep_cmd).exists();
+    let has_rtl_power = std::path::Path::new(&rtl_power_cmd).exists();
+
+    let (cmd, args) = if caps.hackrf && has_hackrf_sweep {
+        (hackrf_sweep_cmd, vec![
             "-f".to_string(), format!("{}:{}", start_mhz as u64, end_mhz as u64),
             "-w".to_string(), format!("{}", (step_khz * 1000.0) as u64),
             "-1".to_string(),
         ])
-    } else if caps.rtl_power {
+    } else if has_rtl_power {
         let step_str = if step_khz >= 1000.0 {
             format!("{}M", step_khz / 1000.0)
         } else {
             format!("{}k", step_khz)
         };
-        ("rtl_power".to_string(), vec![
+        (rtl_power_cmd, vec![
             "-f".to_string(), format!("{}M:{}M:{}", start_mhz, end_mhz, step_str),
             "-1".to_string(),
             "-i".to_string(), "1".to_string(),
@@ -5321,6 +5351,65 @@ fn extract_signal_features(iq_data: &[u8], sample_rate: u32) -> serde_json::Valu
         "num_samples": samples.len(),
         "sample_rate": sample_rate,
     })
+}
+
+/// Automatically capture IQ fingerprint for a detected target.
+/// Spawns in the background - does not block the scan loop.
+/// `source` is "drone", "tscm", etc. `label` describes the detection.
+fn auto_capture_signal(frequency_mhz: f64, label: String, source: String) {
+    tokio::spawn(async move {
+        let freq_hz = (frequency_mhz * 1_000_000.0) as u64;
+        let sample_rate: u32 = 2_400_000;
+        let duration_ms: u64 = 250; // 250ms capture for quick fingerprint
+        let samples = (sample_rate as u64 * duration_ms) / 1000;
+
+        let rtl_sdr_cmd = crate::sdr::resolve_sdr_command("rtl_sdr");
+        if !std::path::Path::new(&rtl_sdr_cmd).exists() {
+            tracing::debug!("Auto-capture skipped: rtl_sdr not found");
+            return;
+        }
+
+        let output_file = format!("/tmp/sigint_autocap_{}.bin", chrono::Utc::now().timestamp_millis());
+
+        let result = tokio::process::Command::new(&rtl_sdr_cmd)
+            .args(&[
+                "-f", &freq_hz.to_string(),
+                "-s", &sample_rate.to_string(),
+                "-n", &(samples * 2).to_string(),
+                &output_file,
+            ])
+            .output()
+            .await;
+
+        if let Ok(_output) = result {
+            if std::path::Path::new(&output_file).exists() {
+                if let Ok(iq_data) = std::fs::read(&output_file) {
+                    let features = extract_signal_features(&iq_data, sample_rate);
+
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let sig_dir = format!("{}/sigint-deck/signatures", home);
+                    let _ = std::fs::create_dir_all(&sig_dir);
+                    let sig_id = format!("auto_{}_{}", source, chrono::Utc::now().timestamp_millis());
+                    let sig_file = format!("{}/{}.json", sig_dir, sig_id);
+
+                    let signature = serde_json::json!({
+                        "id": sig_id,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "frequency_mhz": frequency_mhz,
+                        "sample_rate": sample_rate,
+                        "duration_ms": duration_ms,
+                        "label": label,
+                        "source": source,
+                        "auto_captured": true,
+                        "features": features,
+                        "raw_file": output_file,
+                    });
+                    let _ = std::fs::write(&sig_file, serde_json::to_string_pretty(&signature).unwrap_or_default());
+                    tracing::info!("Auto-captured signal fingerprint: {} at {:.3} MHz -> {}", label, frequency_mhz, sig_id);
+                }
+            }
+        }
+    });
 }
 
 async fn get_signatures() -> impl Responder {

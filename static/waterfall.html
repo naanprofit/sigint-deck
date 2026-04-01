@@ -937,13 +937,17 @@
             document.getElementById('startFreq').value = PRESETS[key].start;
             document.getElementById('endFreq').value = PRESETS[key].end;
             updateRangeStatus();
-            if (scanning) {
-                stopPolling();
-                waterfallHistory = [];
-                timestampHistory = [];
-                sweepCount = 0;
-                startPolling();
-            }
+            // Always restart scan when a preset is selected
+            stopPolling();
+            waterfallHistory = [];
+            timestampHistory = [];
+            sweepCount = 0;
+            scanning = true;
+            var btnStart = document.getElementById('btnStart');
+            btnStart.textContent = '⏹ Stop';
+            btnStart.className = 'action-btn btn-stop';
+            document.getElementById('btnSnapshot').disabled = false;
+            startPolling();
         }
 
         function updatePalette() {
