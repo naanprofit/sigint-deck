@@ -1582,19 +1582,36 @@ async fn save_settings(
 /// GET /api/settings/{section} - Get a specific settings section
 async fn get_settings_section(
     path: web::Path<String>,
+    config: web::Data<std::sync::Arc<crate::config::Config>>,
 ) -> impl Responder {
     let section = path.into_inner();
-    let settings = crate::settings::AppSettings::default();
-    
+
+    // Read from actual config (disk), falling back to defaults
     let value = match section.as_str() {
-        "general" => serde_json::to_value(&settings.general).ok(),
-        "wifi" => serde_json::to_value(&settings.wifi).ok(),
-        "bluetooth" => serde_json::to_value(&settings.bluetooth).ok(),
-        "gps" => serde_json::to_value(&settings.gps).ok(),
-        "alerts" => serde_json::to_value(&settings.alerts).ok(),
-        "power" => serde_json::to_value(&settings.power).ok(),
-        "privacy" => serde_json::to_value(&settings.privacy).ok(),
-        _ => None,
+        "wifi" => {
+            let wifi = &config.wifi;
+            Some(serde_json::json!({
+                "enabled": wifi.enabled,
+                "interface": wifi.interface,
+                "scan_interval_ms": wifi.scan_interval_ms,
+                "rssi_threshold": wifi.rssi_threshold,
+                "attack_detection": wifi.attack_detection,
+                "channel_hop": true,
+                "channels": [1, 6, 11],
+            }))
+        }
+        _ => {
+            let settings = crate::settings::AppSettings::default();
+            match section.as_str() {
+                "general" => serde_json::to_value(&settings.general).ok(),
+                "bluetooth" => serde_json::to_value(&settings.bluetooth).ok(),
+                "gps" => serde_json::to_value(&settings.gps).ok(),
+                "alerts" => serde_json::to_value(&settings.alerts).ok(),
+                "power" => serde_json::to_value(&settings.power).ok(),
+                "privacy" => serde_json::to_value(&settings.privacy).ok(),
+                _ => None,
+            }
+        }
     };
     
     match value {
@@ -5051,13 +5068,16 @@ async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder
     let has_hackrf_sweep = std::path::Path::new(&hackrf_sweep_cmd).exists();
     let has_rtl_power = std::path::Path::new(&rtl_power_cmd).exists();
 
+    // RTL-SDR max frequency is ~1766 MHz; HackRF covers up to 6 GHz
+    let rtl_max_mhz = 1766.0;
+
     let (cmd, args) = if caps.hackrf && has_hackrf_sweep {
         (hackrf_sweep_cmd, vec![
             "-f".to_string(), format!("{}:{}", start_mhz as u64, end_mhz as u64),
             "-w".to_string(), format!("{}", (step_khz * 1000.0) as u64),
             "-1".to_string(),
         ])
-    } else if has_rtl_power {
+    } else if has_rtl_power && end_mhz <= rtl_max_mhz {
         let step_str = if step_khz >= 1000.0 {
             format!("{}M", step_khz / 1000.0)
         } else {
@@ -5068,6 +5088,12 @@ async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder
             "-1".to_string(),
             "-i".to_string(), "1".to_string(),
         ])
+    } else if has_rtl_power && end_mhz > rtl_max_mhz {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Frequency range {:.0}-{:.0} MHz exceeds RTL-SDR maximum ({:.0} MHz). HackRF required for frequencies above {:.0} MHz.", start_mhz, end_mhz, rtl_max_mhz, rtl_max_mhz),
+            "rtl_max_mhz": rtl_max_mhz,
+            "hint": "Select a band below 1766 MHz, or connect a HackRF for wideband coverage."
+        }));
     } else {
         return HttpResponse::ServiceUnavailable().json(serde_json::json!({
             "error": "No SDR hardware available for waterfall scan"
@@ -5744,10 +5770,83 @@ struct SubGhzCaptureRequest {
 }
 
 async fn flipper_subghz_capture(body: web::Json<SubGhzCaptureRequest>) -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "not_implemented",
-        "hint": "SubGHz capture requires Flipper Zero connected via USB and --features flipper"
-    }))
+    let freq_mhz = body.frequency_mhz.unwrap_or(433.92);
+    let duration = body.duration_seconds.unwrap_or(5);
+
+    #[cfg(feature = "flipper")]
+    {
+        let devices = crate::flipper::serial::FlipperSerial::detect_devices();
+        if devices.is_empty() {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "No Flipper Zero detected on USB",
+                "hint": "Connect Flipper Zero via USB cable. Make sure it's on the home screen."
+            }));
+        }
+
+        let port_path = &devices[0];
+        match serialport::new(port_path, 115200)
+            .timeout(std::time::Duration::from_secs(duration + 2))
+            .open()
+        {
+            Ok(mut port) => {
+                use std::io::{BufRead, BufReader, Write};
+
+                // Send SubGHz RX command via Flipper CLI
+                let freq_hz = (freq_mhz * 1_000_000.0) as u64;
+                let cmd = format!("subghz rx {}\r\n", freq_hz);
+                let _ = port.write_all(cmd.as_bytes());
+                let _ = port.flush();
+
+                // Read output for duration
+                let reader = BufReader::new(port.try_clone().unwrap_or_else(|_| port.try_clone().expect("clone")));
+                let start = std::time::Instant::now();
+                let mut lines = Vec::new();
+
+                for line in reader.lines() {
+                    if start.elapsed() > std::time::Duration::from_secs(duration) { break; }
+                    match line {
+                        Ok(l) => {
+                            if !l.trim().is_empty() {
+                                lines.push(l);
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                // Stop capture
+                // Send Ctrl+C to stop SubGHz RX
+                if let Ok(mut p2) = serialport::new(port_path, 115200)
+                    .timeout(std::time::Duration::from_secs(2))
+                    .open()
+                {
+                    let _ = p2.write_all(b"\x03\r\n");
+                    let _ = p2.flush();
+                }
+
+                HttpResponse::Ok().json(serde_json::json!({
+                    "status": "captured",
+                    "frequency_mhz": freq_mhz,
+                    "duration_seconds": duration,
+                    "port": port_path,
+                    "lines_captured": lines.len(),
+                    "output": lines,
+                }))
+            }
+            Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to open serial port {}: {}", port_path, e),
+                "hint": "Make sure Flipper Zero is on the home screen and USB is in CDC mode"
+            }))
+        }
+    }
+
+    #[cfg(not(feature = "flipper"))]
+    {
+        HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "not_available",
+            "hint": "Build with --features flipper for SubGHz capture support"
+        }))
+    }
 }
 
 async fn flipper_subghz_replay(_body: web::Json<serde_json::Value>) -> impl Responder {

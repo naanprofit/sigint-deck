@@ -397,23 +397,27 @@
             <label for="presetBand">Band:</label>
             <select id="presetBand" class="control-input" onchange="applyPreset()">
                 <option value="">Custom</option>
-                <option value="ism433">ISM 433 MHz</option>
-                <option value="ism868">ISM 868 MHz</option>
-                <option value="ism915">ISM 915 MHz</option>
-                <option value="wifi24">WiFi 2.4 GHz</option>
-                <option value="wifi5">WiFi 5 GHz</option>
-                <option value="frs">FRS/GMRS</option>
-                <option value="murs">MURS</option>
-                <option value="cell700">Cellular 700 MHz</option>
-                <option value="cell850">Cellular 850 MHz</option>
-                <option value="cell900">Cellular 900 MHz</option>
-                <option value="cell1900">Cellular 1900 MHz</option>
-                <option value="ads1090">ADS-B 1090 MHz</option>
+                <optgroup label="RTL-SDR Compatible (24-1766 MHz)">
                 <option value="fmradio">FM Radio 88-108 MHz</option>
                 <option value="air">Airband 118-137 MHz</option>
+                <option value="murs">MURS 151-154 MHz</option>
                 <option value="marine">Marine VHF 156-162 MHz</option>
+                <option value="ism433">ISM 433 MHz</option>
+                <option value="frs">FRS/GMRS 462-468 MHz</option>
+                <option value="cell700">Cellular 700 MHz</option>
+                <option value="cell850">Cellular 850 MHz</option>
+                <option value="ism868">ISM 868 MHz</option>
+                <option value="cell900">Cellular 900 MHz</option>
+                <option value="ism915">ISM 915 MHz</option>
+                <option value="ads1090">ADS-B 1090 MHz</option>
+                </optgroup>
+                <optgroup label="HackRF Required (>1.7 GHz)">
+                <option value="cell1900">Cellular 1900 MHz</option>
+                <option value="wifi24">WiFi 2.4 GHz</option>
                 <option value="drone24">Drone 2.4 GHz</option>
+                <option value="wifi5">WiFi 5 GHz</option>
                 <option value="drone58">Drone 5.8 GHz</option>
+                </optgroup>
             </select>
         </div>
 
@@ -850,17 +854,35 @@
 
             fetch(url)
                 .then(function(resp) {
-                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    if (!resp.ok) {
+                        return resp.json().then(function(errData) {
+                            throw new Error(errData.error || errData.hint || ('HTTP ' + resp.status));
+                        }).catch(function(e) {
+                            if (e.message && !e.message.startsWith('HTTP')) throw e;
+                            throw new Error('HTTP ' + resp.status);
+                        });
+                    }
                     return resp.json();
                 })
                 .then(function(data) {
                     setConnected(true);
-                    processData(data);
+                    if (data.frequencies && data.frequencies.length > 0) {
+                        processData(data);
+                    } else {
+                        connectionText.textContent = 'No data (check SDR)';
+                    }
                 })
                 .catch(function(err) {
                     setConnected(false);
-                    // Generate simulated data for UI demo
-                    simulateData();
+                    connectionText.textContent = err.message || 'Error';
+                    // Only simulate if it's a connection error, not a range error
+                    if (err.message && (err.message.includes('exceeds') || err.message.includes('HackRF'))) {
+                        connectionText.textContent = err.message;
+                        stopPolling();
+                        scanning = false;
+                        document.getElementById('btnStart').textContent = '▶ Start';
+                        document.getElementById('btnStart').className = 'action-btn btn-start';
+                    }
                 });
         }
 

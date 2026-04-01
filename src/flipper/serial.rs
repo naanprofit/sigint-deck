@@ -63,20 +63,10 @@ impl FlipperSerial {
             }
         }
         
-        // Also check common paths on Linux/macOS
+        // Fallback: only check common paths if serialport enumeration found nothing
+        // Do NOT blindly add ttyACM* as they could be other devices (GPS, Steam Controller)
         #[cfg(unix)]
         {
-            let exact_paths = [
-                "/dev/ttyACM0",
-                "/dev/ttyACM1",
-                "/dev/ttyUSB0",
-                "/dev/cu.usbmodemflip1",
-            ];
-            for path in exact_paths {
-                if std::path::Path::new(path).exists() && !devices.contains(&path.to_string()) {
-                    devices.push(path.to_string());
-                }
-            }
             // Glob match for macOS Flipper serial ports
             if let Ok(entries) = std::fs::read_dir("/dev") {
                 for entry in entries.flatten() {

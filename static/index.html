@@ -2168,22 +2168,24 @@
                 <div class="sdr-section-header">
                     <h4>🎯 Sweep Controls</h4>
                 </div>
-                <div class="sweep-controls">
-                    <select id="sweepType" class="spectrum-select" style="width: 200px;">
-                        <option value="quick">Quick Sweep (5-10 min)</option>
-                        <option value="standard" selected>Standard Sweep (20-30 min)</option>
-                        <option value="full">Full Sweep (1-2 hours)</option>
-                        <option value="federal">Federal Threat Sweep (Extended)</option>
+                <div class="sweep-controls" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+                    <select id="sweepType" class="spectrum-select" style="width:180px;flex-shrink:0;">
+                        <option value="quick">Quick Sweep</option>
+                        <option value="standard" selected>Standard Sweep</option>
+                        <option value="full">Full Sweep</option>
+                        <option value="federal">Federal Threat</option>
                     </select>
-                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
+                    <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start</button>
+                    <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
+                    <a href="/waterfall.html" class="action-btn" style="text-decoration:none;font-size:0.85rem;">📊 Waterfall</a>
+                </div>
+                <div style="display:flex;gap:1rem;align-items:center;margin-top:0.5rem;font-size:0.85rem;">
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
                         <input type="checkbox" id="tscmContinuous"> Continuous
                     </label>
-                    <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start Sweep</button>
-                    <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
-                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;margin-left:0.5rem;" title="Filter out known WiFi signals in 2.4/5 GHz bands to reduce false positives">
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;" title="Filter out known WiFi signals in 2.4/5 GHz bands">
                         <input type="checkbox" id="wifiFilterToggle" checked onchange="toggleWifiFilter(this.checked)"> Filter WiFi
                     </label>
-                    <a href="/waterfall.html" class="action-btn" style="text-decoration:none;font-size:0.85rem;" title="Open Waterfall Analyzer">📊 Waterfall</a>
                 </div>
                 
                 <!-- Progress -->
