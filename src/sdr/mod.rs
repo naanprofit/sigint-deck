@@ -60,26 +60,40 @@ pub struct SdrDeviceInfo {
 
 impl SdrCapabilities {
     pub fn detect() -> Self {
-        let rtl_sdr = check_command("rtl_test", &["-h"]);
-        let rtl_433 = check_command("rtl_433", &["-h"]);
-        let rtl_power = check_command("rtl_power", &["-h"]);
-        let hackrf = check_command("hackrf_info", &[]);
-        let limesdr = check_command("LimeUtil", &["--help"]);
-        let kalibrate = check_command("kal", &["-h"]) || check_command("kalibrate-rtl", &["-h"]);
-        
         let devices = detect_sdr_devices();
-        
+
+        // Hardware detection: check if actual devices are connected, not just binaries
+        let has_rtl_hw = devices.iter().any(|d| matches!(d.device_type, SdrDevice::RtlSdr));
+        let has_hackrf_hw = devices.iter().any(|d| matches!(d.device_type, SdrDevice::HackRf));
+        let has_lime_hw = devices.iter().any(|d| matches!(d.device_type, SdrDevice::LimeSdr));
+
+        // Binary detection: needed for tools that work with available hardware
+        let has_rtl_433_bin = check_command("rtl_433", &["-h"]);
+        let has_rtl_power_bin = check_command("rtl_power", &["-h"]);
+        let has_kal_bin = check_command("kal", &["-h"]) || check_command("kalibrate-rtl", &["-h"]);
+
+        // Capabilities require BOTH hardware AND binary
         Self {
-            rtl_sdr,
-            rtl_433,
-            rtl_power,
-            hackrf,
-            limesdr,
-            kalibrate,
+            rtl_sdr: has_rtl_hw,
+            rtl_433: has_rtl_hw && has_rtl_433_bin,
+            rtl_power: has_rtl_hw && has_rtl_power_bin,
+            hackrf: has_hackrf_hw,
+            limesdr: has_lime_hw,
+            kalibrate: has_rtl_hw && has_kal_bin,
             devices,
         }
     }
     
+    /// Check if hackrf_sweep actually works (not just detected)
+    pub fn hackrf_sweep_works(&self) -> bool {
+        if !self.hackrf { return false; }
+        let cmd = resolve_sdr_command("hackrf_sweep");
+        match Command::new(&cmd).args(&["-f", "100:101", "-1", "-N", "1"]).output() {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
+    }
+
     pub fn any_available(&self) -> bool {
         self.rtl_sdr || self.hackrf || self.limesdr
     }

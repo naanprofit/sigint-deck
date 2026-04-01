@@ -851,20 +851,21 @@ impl EmiDetector {
             return Ok(vec![]);
         }
         
-        // Use rtl_power with direct sampling mode (-E) for low frequency
-        // -E 2 = Q-branch direct sampling (better for low frequencies)
         let start_khz = self.config.scan_range_khz.0 as u32;
         let end_khz = self.config.scan_range_khz.1 as u32;
+        let resolve = crate::sdr::resolve_sdr_command;
         
-        // Convert to Hz for rtl_power
-        let freq_range = format!("{}k:{}k:1k", start_khz, end_khz);
+        // EMI frequencies are typically below RTL-SDR tuner range.
+        // Use 24-30 MHz range which is the lowest rtl_power supports
+        // and where motor harmonics can still be detected.
+        let emi_start = start_khz.max(24000); // min 24 MHz for rtl_power
+        let emi_end = end_khz.max(emi_start + 1000).min(30000); // cap at 30 MHz
+        let freq_range = format!("{}M:{}M:1k", emi_start / 1000, emi_end / 1000);
         
-        let output = Command::new("rtl_power")
+        let output = Command::new(&resolve("rtl_power"))
             .args(&[
                 "-f", &freq_range,
-                "-i", "1",      // 1 second integration
-                "-1",           // Single sweep
-                "-E", "2",      // Direct sampling Q-branch
+                "-i", "1", "-1", "-g", "40",
                 "-d", &self.config.device_index.to_string(),
             ])
             .output()

@@ -1059,55 +1059,82 @@ pub async fn update_llm_settings(
     }))
 }
 
+/// Sanitize LLM endpoint URL: strip fragments (#...) and trailing slashes
+fn sanitize_llm_url(url: &str) -> String {
+    let url = url.trim();
+    // Strip fragment (#/ or #anything)
+    let url = if let Some(idx) = url.find('#') { &url[..idx] } else { url };
+    url.trim_end_matches('/').to_string()
+}
+
+/// Read LLM config from saved config file (not in-memory)
+fn read_llm_config_from_disk() -> Option<crate::config::LlmConfig> {
+    let config_paths = [
+        dirs::home_dir().map(|h| h.join("sigint-deck").join("config.toml")).unwrap_or_default(),
+        dirs::home_dir().map(|h| h.join("sigint-pi").join("config.toml")).unwrap_or_default(),
+        std::path::PathBuf::from("./config.toml"),
+    ];
+    for path in &config_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(config) = toml::from_str::<crate::config::Config>(&content) {
+                return config.llm;
+            }
+        }
+    }
+    None
+}
+
 /// POST /api/settings/llm/test - Test LLM connection
+/// Reads from SAVED config file so it reflects the most recently saved settings
 pub async fn test_llm_connection(
-    config: web::Data<Arc<crate::config::Config>>,
+    _config: web::Data<Arc<crate::config::Config>>,
 ) -> impl Responder {
-    let llm_config = match &config.llm {
-        Some(c) if c.enabled => c.clone(),
+    // Read from disk so we get the latest saved settings, not the startup config
+    let llm_config = match read_llm_config_from_disk() {
+        Some(c) if c.enabled => c,
         Some(_) => {
             return HttpResponse::Ok().json(serde_json::json!({
                 "success": false,
-                "error": "LLM is disabled in settings"
+                "error": "LLM is disabled in settings. Enable it and save first."
             }));
         }
         None => {
             return HttpResponse::Ok().json(serde_json::json!({
                 "success": false,
-                "error": "LLM not configured"
+                "error": "LLM not configured. Set the endpoint and save first."
             }));
         }
     };
     
-    // Try to connect and get a simple response
-    let client = reqwest::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build();
-    
-    let client = match client {
+        .build() {
         Ok(c) => c,
         Err(e) => {
             return HttpResponse::Ok().json(serde_json::json!({
-                "success": false,
-                "error": format!("Failed to create HTTP client: {}", e)
+                "success": false, "error": format!("HTTP client error: {}", e)
             }));
         }
     };
     
-    // Try to list models - different providers use different endpoints
-    let base_url = llm_config.endpoint.trim_end_matches('/');
-    let url = if base_url.contains("11434") || llm_config.provider.to_lowercase() == "ollama" {
-        // Ollama uses /api/tags
+    let base_url = sanitize_llm_url(&llm_config.endpoint);
+    let provider = llm_config.provider.to_lowercase();
+    
+    // Determine the right test URL based on provider
+    let url = if provider == "ollama" || base_url.contains("11434") {
         format!("{}/api/tags", base_url)
-    } else if base_url.contains("1234") || llm_config.provider.to_lowercase() == "lmstudio" {
-        // LM Studio uses /v1/models
+    } else if provider == "lmstudio" || base_url.contains("1234") {
+        format!("{}/v1/models", base_url)
+    } else if provider == "llamacpp" || base_url.contains("8080") {
+        // llama.cpp uses /v1/models or /health
         format!("{}/v1/models", base_url)
     } else {
-        // Default OpenAI-compatible: /models or /v1/models
-        format!("{}/models", base_url)
+        format!("{}/v1/models", base_url)
     };
-    let mut req = client.get(&url);
     
+    tracing::info!("Testing LLM connection: provider={}, url={}", provider, url);
+    
+    let mut req = client.get(&url);
     if let Some(ref api_key) = llm_config.api_key {
         if !api_key.is_empty() {
             req = req.header("Authorization", format!("Bearer {}", api_key));
@@ -1116,24 +1143,38 @@ pub async fn test_llm_connection(
     
     match req.send().await {
         Ok(response) => {
-            if response.status().is_success() {
+            let status = response.status();
+            let body_text = response.text().await.unwrap_or_default();
+            if status.is_success() {
+                // Try to extract model names from response
+                let models: Vec<String> = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+                    json.get("data").and_then(|d| d.as_array())
+                        .or_else(|| json.get("models").and_then(|m| m.as_array()))
+                        .map(|arr| arr.iter().filter_map(|m| {
+                            m.get("id").or(m.get("name")).and_then(|v| v.as_str()).map(String::from)
+                        }).collect())
+                        .unwrap_or_default()
+                } else { vec![] };
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
-                    "message": "Successfully connected to LLM provider",
-                    "status": response.status().as_u16()
+                    "message": format!("Connected to {} at {}", provider, base_url),
+                    "models": models,
+                    "status": status.as_u16()
                 }))
             } else {
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": false,
-                    "error": format!("LLM API returned status {}", response.status()),
-                    "status": response.status().as_u16()
+                    "error": format!("LLM API returned status {} - {}", status, &body_text[..body_text.len().min(200)]),
+                    "url_tested": url,
+                    "status": status.as_u16()
                 }))
             }
         }
         Err(e) => {
             HttpResponse::Ok().json(serde_json::json!({
                 "success": false,
-                "error": format!("Failed to connect: {}", e)
+                "error": format!("Failed to connect to {}: {}", url, e),
+                "hint": "Check that the LLM server is running and the URL is correct"
             }))
         }
     }
@@ -1357,7 +1398,11 @@ async fn save_settings(
     if let (toml::Value::Table(ref mut existing_table), Some(incoming_obj)) = (&mut existing, incoming.as_object()) {
         // Handle LLM settings
         if let Some(llm) = incoming_obj.get("llm") {
-            let mut llm_table = toml::map::Map::new();
+            // Preserve existing LLM fields that UI might not send
+            let existing_llm = existing_table.get("llm")
+                .and_then(|v| v.as_table()).cloned()
+                .unwrap_or_default();
+            let mut llm_table = existing_llm;
             if let Some(obj) = llm.as_object() {
                 if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
                     llm_table.insert("enabled".to_string(), toml::Value::Boolean(enabled));
@@ -1366,10 +1411,16 @@ async fn save_settings(
                     llm_table.insert("provider".to_string(), toml::Value::String(provider.to_string()));
                 }
                 if let Some(endpoint) = obj.get("endpoint").and_then(|v| v.as_str()) {
-                    llm_table.insert("endpoint".to_string(), toml::Value::String(endpoint.to_string()));
+                    // Sanitize URL: strip fragments (#/) and trailing slashes
+                    llm_table.insert("endpoint".to_string(), toml::Value::String(sanitize_llm_url(endpoint)));
                 }
                 if let Some(model) = obj.get("model").and_then(|v| v.as_str()) {
                     llm_table.insert("model".to_string(), toml::Value::String(model.to_string()));
+                }
+                if let Some(api_key) = obj.get("api_key").and_then(|v| v.as_str()) {
+                    if !api_key.is_empty() {
+                        llm_table.insert("api_key".to_string(), toml::Value::String(api_key.to_string()));
+                    }
                 }
             }
             if !llm_table.is_empty() {
@@ -2513,15 +2564,15 @@ struct SpectrumScanRequest {
 async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
     let caps = SdrCapabilities::detect();
     
-    if !caps.rtl_power && !caps.hackrf {
+    if !caps.rtl_sdr && !caps.hackrf {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "No spectrum scanning tool available",
-            "hint": "Install rtl-sdr or hackrf"
+            "error": "No SDR hardware detected",
+            "hint": "Connect an RTL-SDR or HackRF device",
+            "detected_devices": caps.devices.iter().map(|d| &d.name).collect::<Vec<_>>()
         }));
     }
     
     let (start_mhz, end_mhz) = if let Some(band_name) = &body.band {
-        // Map UI dropdown values to band names, plus normalize for fuzzy match
         let alias_map: std::collections::HashMap<&str, &str> = [
             ("ism315", "ISM 315"), ("ism433", "ISM 433"), ("ism868", "ISM 868"), ("ism915", "ISM 915"),
             ("wifi24", "WiFi 2.4GHz"), ("wifi", "WiFi 2.4GHz"),
@@ -2535,8 +2586,6 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
         let bands = FrequencyBand::common_bands();
         let normalize = |s: &str| s.to_lowercase().replace(" ", "").replace("-", "").replace(".", "");
         let search_normalized = normalize(band_name);
-        
-        // First check alias map
         let resolved_name = alias_map.get(search_normalized.as_str()).map(|s| s.to_string());
         
         if let Some(band) = bands.iter().find(|b| {
@@ -2559,31 +2608,122 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
         (body.start_mhz.unwrap_or(400), body.end_mhz.unwrap_or(500))
     };
     
-    // Use hackrf_sweep if available (faster), otherwise rtl_power
-    let output = if caps.hackrf {
-        tokio::process::Command::new("hackrf_sweep")
-            .args(&[
-                "-f", &format!("{}:{}", start_mhz, end_mhz),
-                "-w", "100000",
-                "-1",
-            ])
-            .output()
-            .await
+    // Validate range against available hardware
+    let rtl_max: u32 = 1766;
+    let rtl_min: u32 = 24;
+    let can_rtl = caps.rtl_sdr && start_mhz >= rtl_min && end_mhz <= rtl_max;
+    let can_hackrf = caps.hackrf;
+    
+    if !can_rtl && !can_hackrf {
+        if caps.rtl_sdr && (start_mhz < rtl_min || end_mhz > rtl_max) {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Range {}-{} MHz exceeds RTL-SDR limits (24-1766 MHz). No HackRF available.", start_mhz, end_mhz),
+                "hint": "Connect a HackRF One for frequencies above 1.7 GHz or below 24 MHz"
+            }));
+        }
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": "No suitable SDR hardware for this range" }));
+    }
+    
+    let resolve = crate::sdr::resolve_sdr_command;
+    
+    // Try primary method, fall back to raw IQ capture + FFT if it fails
+    let result = if can_rtl {
+        // PRIMARY: rtl_power
+        let rtl_power_cmd = resolve("rtl_power");
+        let primary = tokio::process::Command::new(&rtl_power_cmd)
+            .args(&["-f", &format!("{}M:{}M:100k", start_mhz, end_mhz), "-i", "1", "-1", "-g", "40"])
+            .output().await;
+        
+        match &primary {
+            Ok(o) if o.status.success() && !o.stdout.is_empty() => primary,
+            _ => {
+                // FALLBACK: rtl_sdr raw IQ capture + python FFT
+                tracing::warn!("rtl_power failed, falling back to rtl_sdr + FFT");
+                let center_hz = ((start_mhz as u64 + end_mhz as u64) / 2) * 1_000_000;
+                let bw = ((end_mhz - start_mhz) as u64).max(1) * 1_000_000;
+                let sample_rate = bw.min(2_400_000).max(1_000_000);
+                let num_samples = sample_rate * 2; // 2 seconds of data
+                let script = format!(
+                    r#"import sys,struct,math
+data=open('/tmp/sigint_iq.bin','rb').read()
+n=len(data)//2
+iq=[complex(data[i*2]-127.5,data[i*2+1]-127.5) for i in range(min(n,{fft_size}))]
+N=len(iq)
+if N==0: sys.exit(1)
+# Simple DFT power spectrum
+import cmath
+half=N//2
+powers=[]
+step={sr}/N
+for k in range(N):
+    s=sum(iq[j]*cmath.exp(-2j*cmath.pi*k*j/N) for j in range(0,N,max(1,N//256)))
+    p=20*math.log10(abs(s)/N+1e-10)
+    powers.append(p)
+# Output in rtl_power CSV format
+hz_low={center}-{sr}//2
+for i in range(0,len(powers),max(1,len(powers)//128)):
+    hz=hz_low+int(i*step)
+    chunk=powers[i:i+max(1,len(powers)//128)]
+    avg=sum(chunk)/len(chunk) if chunk else -100
+    print(f"2026-01-01, 00:00:00, {{hz}}, {{hz+int(step*len(chunk))}}, {{int(step)}}, {{len(chunk)}}, {{avg:.1f}}")
+"#, fft_size=2048, sr=sample_rate, center=center_hz);
+                let _ = tokio::fs::write("/tmp/sigint_fft.py", &script).await;
+                tokio::process::Command::new("sh")
+                    .args(&["-c", &format!(
+                        "{} -f {} -s {} -n {} /tmp/sigint_iq.bin 2>/dev/null && python3 /tmp/sigint_fft.py",
+                        resolve("rtl_sdr"), center_hz, sample_rate, num_samples
+                    )]).output().await
+            }
+        }
     } else {
-        tokio::process::Command::new("rtl_power")
-            .args(&[
-                "-f", &format!("{}M:{}M:100k", start_mhz, end_mhz),
-                "-i", "1",
-                "-1",
-            ])
-            .output()
-            .await
+        // HackRF path
+        let hackrf_sweep_cmd = resolve("hackrf_sweep");
+        let primary = tokio::process::Command::new(&hackrf_sweep_cmd)
+            .args(&["-f", &format!("{}:{}", start_mhz, end_mhz), "-w", "100000", "-1"])
+            .output().await;
+        
+        match &primary {
+            Ok(o) if o.status.success() && !o.stdout.is_empty() => primary,
+            _ => {
+                // FALLBACK: hackrf_transfer raw IQ capture + python FFT
+                tracing::warn!("hackrf_sweep failed, falling back to hackrf_transfer + FFT");
+                let center_hz = ((start_mhz as u64 + end_mhz as u64) / 2) * 1_000_000;
+                let sample_rate: u64 = 8_000_000;
+                let num_samples = sample_rate * 2;
+                let script = format!(
+                    r#"import sys,struct,math
+data=open('/tmp/sigint_hrf_iq.bin','rb').read()
+n=len(data)//2
+iq=[complex((data[i*2]^0x80)-128,(data[i*2+1]^0x80)-128) for i in range(min(n,8192))]
+N=len(iq)
+if N==0: sys.exit(1)
+import cmath
+powers=[]
+step={sr}/N
+for k in range(N):
+    s=sum(iq[j]*cmath.exp(-2j*cmath.pi*k*j/N) for j in range(0,N,max(1,N//512)))
+    p=20*math.log10(abs(s)/N+1e-10)
+    powers.append(p)
+hz_low={center}-{sr}//2
+for i in range(0,len(powers),max(1,len(powers)//128)):
+    hz=hz_low+int(i*step)
+    chunk=powers[i:i+max(1,len(powers)//128)]
+    avg=sum(chunk)/len(chunk) if chunk else -100
+    print(f"2026-01-01, 00:00:00, {{hz}}, {{hz+int(step*len(chunk))}}, {{int(step)}}, {{len(chunk)}}, {{avg:.1f}}")
+"#, sr=sample_rate, center=center_hz);
+                let _ = tokio::fs::write("/tmp/sigint_hrf_fft.py", &script).await;
+                tokio::process::Command::new("sh")
+                    .args(&["-c", &format!(
+                        "{} -r /tmp/sigint_hrf_iq.bin -f {} -s {} -n {} 2>/dev/null && python3 /tmp/sigint_hrf_fft.py",
+                        resolve("hackrf_transfer"), center_hz, sample_rate, num_samples
+                    )]).output().await
+            }
+        }
     };
     
-    match output {
+    match result {
         Ok(out) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            // Parse and return spectrum data
             let points: Vec<serde_json::Value> = stdout.lines()
                 .filter_map(|line| {
                     let parts: Vec<&str> = line.split(',').collect();
@@ -2604,17 +2744,22 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
                 })
                 .collect();
             
+            let tool = if can_rtl { "RTL-SDR" } else { "HackRF" };
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "start_mhz": start_mhz,
                 "end_mhz": end_mhz,
+                "tool": tool,
                 "data": points
             }))
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            tracing::error!("Spectrum scan failed: stderr={}, stdout_len={}", stderr, stdout.len());
             HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("Scan failed: {}", stderr)
+                "error": format!("Scan failed: {}", if stderr.is_empty() { "No output from SDR tool" } else { &stderr }),
+                "hardware": caps.devices.iter().map(|d| &d.name).collect::<Vec<_>>()
             }))
         }
         Err(e) => {
@@ -2724,48 +2869,39 @@ async fn scan_drones() -> impl Responder {
     
     if caps.hackrf {
         // Scan 2.4 GHz band (HackRF only)
-        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-            .args(&["-f", "2400:2500", "-w", "500000", "-1"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(signal) = detect_drone_signal(&stdout, 2_400_000_000, 2_500_000_000, "2.4GHz") {
+        if let Some(data) = tscm_scan_band(2400.0, 2500.0, true, false).await {
+            if let Some(signal) = detect_drone_signal(&data, 2_400_000_000, 2_500_000_000, "2.4GHz") {
                 found_signals.push(signal);
             }
             bands_scanned.push("2.4GHz");
         }
         
         // Scan 5.8 GHz band (HackRF only)
-        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
-            .args(&["-f", "5650:5950", "-w", "1000000", "-1"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(signal) = detect_drone_signal(&stdout, 5_650_000_000, 5_950_000_000, "5.8GHz") {
+        if let Some(data) = tscm_scan_band(5650.0, 5950.0, true, false).await {
+            if let Some(signal) = detect_drone_signal(&data, 5_650_000_000, 5_950_000_000, "5.8GHz") {
                 found_signals.push(signal);
             }
             bands_scanned.push("5.8GHz");
         }
-    }
-    
-    // RTL-SDR: scan key drone bands (single sweep to avoid device contention)
-    if caps.rtl_sdr {
-        // Combine into one wide scan covering the most important drone frequencies
-        // 860-930 MHz covers: Crossfire, ELRS, Lancet/ZALA, Orlan-10 867-920 MHz
-        if let Ok(out) = tokio::process::Command::new("rtl_power")
-            .args(&["-f", "860M:930M:10k", "-i", "1", "-1"])
-            .output()
-            .await
-        {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                if let Some(signal) = detect_drone_signal(&stdout, 860_000_000, 930_000_000, "868-915MHz") {
+        
+        // Also scan sub-GHz with HackRF when no RTL-SDR available
+        if !caps.rtl_sdr {
+            if let Some(data) = tscm_scan_band(860.0, 930.0, true, false).await {
+                if let Some(signal) = detect_drone_signal(&data, 860_000_000, 930_000_000, "868-915MHz") {
                     found_signals.push(signal);
                 }
                 bands_scanned.push("868-915MHz");
             }
+        }
+    }
+    
+    // RTL-SDR: scan key drone bands
+    if caps.rtl_sdr {
+        if let Some(data) = tscm_scan_band(860.0, 930.0, false, true).await {
+            if let Some(signal) = detect_drone_signal(&data, 860_000_000, 930_000_000, "868-915MHz") {
+                found_signals.push(signal);
+            }
+            bands_scanned.push("868-915MHz");
         }
     }
     
@@ -3379,8 +3515,9 @@ async fn llm_analyze_device(
     
     context.push_str("\nProvide a threat assessment and recommendations.");
     
-    // Check if LLM is configured
-    let llm_config = config.llm.as_ref();
+    // Check if LLM is configured - read from disk for latest saved settings
+    let disk_llm = read_llm_config_from_disk();
+    let llm_config = disk_llm.as_ref().or(config.llm.as_ref());
     let llm_enabled = llm_config.map(|c| c.enabled).unwrap_or(false);
     
     if !llm_enabled {
@@ -3410,7 +3547,7 @@ async fn llm_analyze_device(
     
     // Call LLM for analysis
     let llm = llm_config.unwrap(); // Safe because we checked llm_enabled
-    let llm_endpoint = &llm.endpoint;
+    let llm_endpoint = sanitize_llm_url(&llm.endpoint);
     let llm_model = &llm.model;
     
     let client = match reqwest::Client::builder()
@@ -3429,7 +3566,7 @@ async fn llm_analyze_device(
     let provider = llm.provider.to_lowercase();
     let (api_url, request_body) = if provider.contains("ollama") {
         (
-            format!("{}/api/chat", llm_endpoint.trim_end_matches('/')),
+            format!("{}/api/chat", llm_endpoint),
             serde_json::json!({
                 "model": llm_model,
                 "messages": [
@@ -3440,9 +3577,9 @@ async fn llm_analyze_device(
             })
         )
     } else {
-        // OpenAI-compatible format
+        // OpenAI-compatible format (llama.cpp, LM Studio, etc.)
         (
-            format!("{}/v1/chat/completions", llm_endpoint.trim_end_matches('/')),
+            format!("{}/v1/chat/completions", llm_endpoint),
             serde_json::json!({
                 "model": llm_model,
                 "messages": [
@@ -4270,43 +4407,118 @@ async fn start_tscm_sweep(body: web::Json<TscmSweepRequest>) -> impl Responder {
 async fn tscm_scan_band(start_mhz: f64, end_mhz: f64, has_hackrf: bool, has_rtl: bool) -> Option<String> {
     let rtl_min = 24.0;
     let rtl_max = 1766.0;
+    let resolve = crate::sdr::resolve_sdr_command;
     
-    // HackRF for bands outside RTL-SDR range or if RTL-SDR unavailable
+    // HackRF path: for bands outside RTL-SDR range or if RTL-SDR unavailable
     if has_hackrf && (start_mhz < rtl_min || end_mhz > rtl_max || !has_rtl) {
         let h_start = start_mhz.max(1.0) as u32;
         let h_end = end_mhz.min(6000.0) as u32;
         if h_start >= h_end { return None; }
         
-        if let Ok(out) = tokio::process::Command::new("hackrf_sweep")
+        // Try hackrf_sweep first
+        if let Ok(out) = tokio::process::Command::new(&resolve("hackrf_sweep"))
             .args(&["-f", &format!("{}:{}", h_start, h_end), "-w", "100000", "-1"])
-            .output()
-            .await
+            .output().await
         {
             if out.status.success() && !out.stdout.is_empty() {
                 return Some(String::from_utf8_lossy(&out.stdout).to_string());
             }
         }
+        // Fallback: hackrf_transfer + FFT
+        tracing::warn!("hackrf_sweep failed for {}-{} MHz, using hackrf_transfer fallback", h_start, h_end);
+        let center_hz = ((h_start as u64 + h_end as u64) / 2) * 1_000_000;
+        let sr: u64 = 8_000_000;
+        let iq_path = format!("/tmp/sigint_tscm_hrf_{}.bin", h_start);
+        if let Ok(out) = tokio::process::Command::new(&resolve("hackrf_transfer"))
+            .args(&["-r", &iq_path, "-f", &center_hz.to_string(), "-s", &sr.to_string(), "-n", &(sr * 2).to_string()])
+            .output().await
+        {
+            if out.status.success() {
+                if let Some(csv) = iq_to_csv(&iq_path, center_hz, sr, true).await {
+                    return Some(csv);
+                }
+            }
+        }
     }
     
-    // RTL-SDR for frequencies in its range
+    // RTL-SDR path
     if has_rtl && end_mhz >= rtl_min && start_mhz < rtl_max {
         let r_start = start_mhz.max(rtl_min);
         let r_end = end_mhz.min(rtl_max);
         if r_start >= r_end { return None; }
         let bin = if (r_end - r_start) > 100.0 { "500k" } else if (r_end - r_start) > 10.0 { "100k" } else { "10k" };
         
-        if let Ok(out) = tokio::process::Command::new("rtl_power")
-            .args(&["-f", &format!("{:.1}M:{:.1}M:{}", r_start, r_end, bin), "-i", "1", "-1"])
-            .output()
-            .await
+        // Try rtl_power first
+        if let Ok(out) = tokio::process::Command::new(&resolve("rtl_power"))
+            .args(&["-f", &format!("{:.1}M:{:.1}M:{}", r_start, r_end, bin), "-i", "1", "-1", "-g", "40"])
+            .output().await
         {
             if out.status.success() && !out.stdout.is_empty() {
                 return Some(String::from_utf8_lossy(&out.stdout).to_string());
             }
         }
+        // Fallback: rtl_sdr + FFT
+        tracing::warn!("rtl_power failed for {}-{} MHz, using rtl_sdr fallback", r_start, r_end);
+        let center_hz = ((r_start as u64 + r_end as u64) / 2) * 1_000_000;
+        let bw = ((r_end - r_start) as u64).max(1) * 1_000_000;
+        let sr = bw.min(2_400_000).max(1_000_000);
+        let iq_path = format!("/tmp/sigint_tscm_rtl_{}.bin", r_start as u32);
+        if let Ok(out) = tokio::process::Command::new(&resolve("rtl_sdr"))
+            .args(&["-f", &center_hz.to_string(), "-s", &sr.to_string(), "-n", &(sr * 2).to_string(), &iq_path])
+            .output().await
+        {
+            if out.status.success() || std::path::Path::new(&iq_path).exists() {
+                if let Some(csv) = iq_to_csv(&iq_path, center_hz, sr, false).await {
+                    return Some(csv);
+                }
+            }
+        }
     }
     
     None
+}
+
+/// Convert raw IQ binary file to rtl_power-compatible CSV using python FFT
+async fn iq_to_csv(iq_path: &str, center_hz: u64, sample_rate: u64, is_hackrf: bool) -> Option<String> {
+    let decode = if is_hackrf { "(data[i*2]^0x80)-128" } else { "data[i*2]-127.5" };
+    let decode_q = if is_hackrf { "(data[i*2+1]^0x80)-128" } else { "data[i*2+1]-127.5" };
+    let script = format!(
+        r#"import sys,struct,math,cmath
+data=open('{path}','rb').read()
+n=len(data)//2
+if n<256: sys.exit(1)
+N=min(n,4096)
+iq=[complex({d_i},{d_q}) for i in range(N)]
+# Hanning window
+import math as m
+win=[0.5*(1-m.cos(2*m.pi*i/(N-1))) for i in range(N)]
+iq=[iq[i]*win[i] for i in range(N)]
+# DFT via slicing for speed
+powers=[]
+for k in range(N):
+    s=sum(iq[j]*cmath.exp(-2j*cmath.pi*k*j/N) for j in range(0,N,max(1,N//256)))
+    p=20*m.log10(abs(s)/N+1e-10)
+    powers.append(p)
+# Reorder: DC center
+powers=powers[N//2:]+powers[:N//2]
+step={sr}/N
+hz_low={center}-{sr}//2
+for i in range(0,len(powers),max(1,len(powers)//128)):
+    hz=hz_low+int(i*step)
+    chunk=powers[i:i+max(1,len(powers)//128)]
+    avg=sum(chunk)/len(chunk) if chunk else -100
+    print(f"2026-01-01, 00:00:00, {{hz}}, {{hz+int(step*len(chunk))}}, {{int(step)}}, {{len(chunk)}}, {{avg:.1f}}")
+"#, path=iq_path, d_i=decode, d_q=decode_q, sr=sample_rate, center=center_hz);
+    let py_path = format!("{}_fft.py", iq_path);
+    if tokio::fs::write(&py_path, &script).await.is_err() { return None; }
+    match tokio::process::Command::new("python3").arg(&py_path).output().await {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            let _ = tokio::fs::remove_file(iq_path).await;
+            let _ = tokio::fs::remove_file(&py_path).await;
+            Some(String::from_utf8_lossy(&out.stdout).to_string())
+        }
+        _ => None,
+    }
 }
 
 /// Parse sweep output and match against threat database

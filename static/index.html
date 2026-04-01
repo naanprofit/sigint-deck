@@ -2297,9 +2297,18 @@
                 </div>
                 <div class="setting-item" style="grid-column: span 2;">
                     <label>Endpoint</label>
-                    <input type="text" id="llmEndpoint" placeholder="http://localhost:11434" style="width: 100%;">
+                    <input type="text" id="llmEndpoint" placeholder="http://localhost:8080" style="width: 100%;">
+                </div>
+                <div class="setting-item">
+                    <label>Model</label>
+                    <input type="text" id="llmModel" placeholder="llama3" style="width: 100%;">
+                </div>
+                <div class="setting-item">
+                    <label>API Key (optional)</label>
+                    <input type="password" id="llmApiKey" placeholder="sk-..." style="width: 100%;">
                 </div>
             </div>
+            <div id="llmTestResult" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
             <button id="testLlm" class="action-btn" style="margin-top: 0.5rem;">Test Connection</button>
             <button id="analyzeDevices" class="action-btn" style="margin-top: 0.5rem;">Analyze Devices</button>
         </div>
@@ -4113,18 +4122,52 @@
                 btn.textContent = btn.classList.contains('active') ? 'ON' : 'OFF';
             });
             
-            // Test LLM
+            // Test LLM - first saves, then tests
             document.getElementById('testLlm')?.addEventListener('click', async () => {
                 const btn = document.getElementById('testLlm');
-                btn.textContent = 'Testing...';
+                const resultEl = document.getElementById('llmTestResult');
+                btn.textContent = 'Saving & Testing...';
+                resultEl.textContent = '';
                 try {
+                    // Save settings first so test reads the latest
+                    const settings = {
+                        llm: {
+                            enabled: true,
+                            provider: document.getElementById('llmProvider')?.value || 'llamacpp',
+                            endpoint: document.getElementById('llmEndpoint')?.value || '',
+                            model: document.getElementById('llmModel')?.value || 'llama3',
+                            api_key: document.getElementById('llmApiKey')?.value || ''
+                        }
+                    };
+                    await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(settings)
+                    });
+                    // Now test
                     const response = await fetch('/api/settings/llm/test', {method: 'POST'});
                     const data = await response.json();
-                    btn.textContent = data.success ? 'Connected!' : 'Failed';
-                    setTimeout(() => btn.textContent = 'Test Connection', 2000);
+                    if (data.success) {
+                        btn.textContent = 'Connected!';
+                        btn.style.background = 'var(--accent-green)';
+                        let msg = data.message || 'Connected';
+                        if (data.models && data.models.length > 0) {
+                            msg += ' | Models: ' + data.models.slice(0, 5).join(', ');
+                        }
+                        resultEl.textContent = msg;
+                        resultEl.style.color = 'var(--accent-green)';
+                    } else {
+                        btn.textContent = 'Failed';
+                        btn.style.background = 'var(--accent-red)';
+                        resultEl.textContent = data.error || 'Connection failed';
+                        resultEl.style.color = 'var(--accent-red)';
+                    }
+                    setTimeout(() => { btn.textContent = 'Test Connection'; btn.style.background = ''; }, 3000);
                 } catch (e) {
                     btn.textContent = 'Error';
-                    setTimeout(() => btn.textContent = 'Test Connection', 2000);
+                    resultEl.textContent = e.message;
+                    resultEl.style.color = 'var(--accent-red)';
+                    setTimeout(() => { btn.textContent = 'Test Connection'; btn.style.background = ''; }, 3000);
                 }
             });
             
@@ -4144,7 +4187,9 @@
                         llm: {
                             enabled: document.getElementById('aiToggle')?.classList.contains('active') || false,
                             provider: document.getElementById('llmProvider')?.value || 'llamacpp',
-                            endpoint: document.getElementById('llmEndpoint')?.value || 'http://localhost:11434'
+                            endpoint: document.getElementById('llmEndpoint')?.value || 'http://localhost:8080',
+                            model: document.getElementById('llmModel')?.value || 'llama3',
+                            api_key: document.getElementById('llmApiKey')?.value || ''
                         }
                     };
                     
@@ -4171,6 +4216,34 @@
             });
         }
         
+        // Load saved settings from config file into form
+        async function loadSavedSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                if (!response.ok) return;
+                const s = await response.json();
+                if (s.llm) {
+                    if (s.llm.enabled) {
+                        const btn = document.getElementById('aiToggle');
+                        if (btn) { btn.classList.add('active'); btn.textContent = 'ON'; }
+                    }
+                    if (s.llm.provider) {
+                        const sel = document.getElementById('llmProvider');
+                        if (sel) sel.value = s.llm.provider;
+                    }
+                    if (s.llm.endpoint) {
+                        const el = document.getElementById('llmEndpoint');
+                        if (el) el.value = s.llm.endpoint;
+                    }
+                    if (s.llm.model) {
+                        const el = document.getElementById('llmModel');
+                        if (el) el.value = s.llm.model;
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+        loadSavedSettings();
+
         async function checkLlmStatus() {
             const statusEl = document.getElementById('llmStatus');
             if (!statusEl) return;
