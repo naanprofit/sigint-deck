@@ -5065,6 +5065,7 @@ async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder
     // Check for actual binaries, not just hardware presence
     let hackrf_sweep_cmd = crate::sdr::resolve_sdr_command("hackrf_sweep");
     let rtl_power_cmd = crate::sdr::resolve_sdr_command("rtl_power");
+    let rtl_power_cmd_fallback = rtl_power_cmd.clone();
     let has_hackrf_sweep = std::path::Path::new(&hackrf_sweep_cmd).exists();
     let has_rtl_power = std::path::Path::new(&rtl_power_cmd).exists();
 
@@ -5100,11 +5101,37 @@ async fn get_waterfall_data(query: web::Query<WaterfallQuery>) -> impl Responder
         }));
     };
 
-    match tokio::process::Command::new(&cmd)
+    let home = std::env::var("HOME").unwrap_or_default();
+    let ld_path = format!("{}/bin/lib:{}", home, std::env::var("LD_LIBRARY_PATH").unwrap_or_default());
+    let path_env = format!("{}/bin:/usr/local/bin:{}", home, std::env::var("PATH").unwrap_or_default());
+
+    let output_result = tokio::process::Command::new(&cmd)
         .args(&args)
+        .env("LD_LIBRARY_PATH", &ld_path)
+        .env("PATH", &path_env)
         .output()
-        .await
-    {
+        .await;
+
+    // If hackrf_sweep failed (pipe error, empty output), fall back to rtl_power if in range
+    let output_result = match &output_result {
+        Ok(out) if cmd.contains("hackrf") && out.stdout.is_empty() && has_rtl_power && end_mhz <= rtl_max_mhz => {
+            let step_str = if step_khz >= 1000.0 { format!("{}M", step_khz / 1000.0) } else { format!("{}k", step_khz) };
+            let fallback_args = vec![
+                "-f".to_string(), format!("{}M:{}M:{}", start_mhz, end_mhz, step_str),
+                "-1".to_string(), "-i".to_string(), "1".to_string(),
+            ];
+            tracing::info!("hackrf_sweep returned empty, falling back to rtl_power for {}-{} MHz", start_mhz, end_mhz);
+            tokio::process::Command::new(&rtl_power_cmd_fallback)
+                .args(&fallback_args)
+                .env("LD_LIBRARY_PATH", &ld_path)
+                .env("PATH", &path_env)
+                .output()
+                .await
+        }
+        _ => output_result,
+    };
+
+    match output_result {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let mut frequencies: Vec<f64> = Vec::new();
