@@ -2151,7 +2151,7 @@
             <!-- Legal Warning -->
             <div class="legal-warning" style="background: rgba(210, 153, 34, 0.2); border: 1px solid var(--accent-yellow); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
                 <strong>⚠️ Legal Notice:</strong> TSCM sweeps should only be conducted on property you own or have explicit authorization to sweep. 
-                This tool is for defensive counter-surveillance only. See <a href="LEGAL.md" style="color: var(--accent-blue);">LEGAL.md</a> for full terms.
+                This tool is for defensive counter-surveillance only. <a href="#" onclick="showLegalModal(); return false;" style="color: var(--accent-blue);">View Legal Terms</a>
             </div>
             
             <!-- Sweep Controls -->
@@ -2385,6 +2385,26 @@
 
     <div class="shortcut-hint">
         <kbd>P</kbd> Power Mode &nbsp; <kbd>1-5</kbd> Switch Tabs
+    </div>
+
+    <!-- Legal Disclaimer Modal -->
+    <div class="modal-overlay" id="legalModal">
+        <div class="modal" style="max-width: 700px; max-height: 80vh; display: flex; flex-direction: column;">
+            <h2>⚖️ Legal Disclaimer</h2>
+            <div id="legalContent" style="flex: 1; overflow-y: auto; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 1rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 1rem; max-height: 50vh;">
+                Loading...
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                <input type="checkbox" id="legalAcceptCheck" style="width: 18px; height: 18px;">
+                <label for="legalAcceptCheck" style="font-size: 0.9rem;">
+                    I have read and understood the legal terms, compliance requirements, and accept full responsibility for lawful use of this tool.
+                </label>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="action-btn" id="legalAcceptBtn" onclick="acceptLegal()" disabled style="flex: 1; opacity: 0.5;">Accept</button>
+                <button class="modal-close" onclick="closeLegalModal()" tabindex="0" style="flex: 1;">Close</button>
+            </div>
+        </div>
     </div>
 
     <!-- Note Modal -->
@@ -2688,11 +2708,15 @@
                 return;
             }
 
-            list.innerHTML = devices.map(d => `
+            list.innerHTML = devices.map(d => {
+                const firstSeen = d.first_seen ? new Date(d.first_seen * 1000).toLocaleString() : '';
+                const lastSeen = d.last_seen ? new Date(d.last_seen * 1000).toLocaleString() : (d.lastSeen ? new Date(d.lastSeen).toLocaleString() : '');
+                return `
                 <li class="device-item" tabindex="0" data-mac="${d.mac}" data-type="wifi">
                     <div class="device-info">
                         <span class="device-mac">${d.mac}</span>
                         <span class="device-vendor">${d.vendor || 'Unknown'}${d.ssid ? ' • ' + d.ssid : ''}</span>
+                        ${firstSeen ? `<span class="device-times" style="font-size:0.7rem;color:var(--text-secondary);">First: ${firstSeen}${lastSeen ? ' | Last: ' + lastSeen : ''}</span>` : ''}
                     </div>
                     <div class="device-meta">
                         ${d.is_new ? '<span class="badge new">NEW</span>' : ''}
@@ -2702,7 +2726,7 @@
                         <button class="note-btn" onclick="openNoteModal('${d.mac}', 'wifi', '${d.vendor || ''}', '${d.ssid || ''}', '')" title="Add note">📝</button>
                     </div>
                 </li>
-            `).join('');
+            `}).join('');
         }
 
         function renderBleDevices() {
@@ -2720,11 +2744,15 @@
                 return;
             }
 
-            list.innerHTML = devices.map(d => `
+            list.innerHTML = devices.map(d => {
+                const firstSeen = d.first_seen ? new Date(d.first_seen * 1000).toLocaleString() : '';
+                const lastSeen = d.last_seen ? new Date(d.last_seen * 1000).toLocaleString() : (d.lastSeen ? new Date(d.lastSeen).toLocaleString() : '');
+                return `
                 <li class="device-item ${d.is_tracker ? 'tracker-item' : ''}" tabindex="0" data-mac="${d.mac}" data-type="ble">
                     <div class="device-info">
                         <span class="device-mac">${d.name || d.mac}</span>
                         <span class="device-vendor">${d.vendor ? d.vendor + ' • ' : ''}${d.device_type || 'Unknown'}</span>
+                        ${firstSeen ? `<span class="device-times" style="font-size:0.7rem;color:var(--text-secondary);">First: ${firstSeen}${lastSeen ? ' | Last: ' + lastSeen : ''}</span>` : ''}
                         ${d.tracker_info ? renderTrackerInfo(d.tracker_info) : ''}
                     </div>
                     <div class="device-meta">
@@ -2736,7 +2764,7 @@
                         <button class="note-btn" onclick="openNoteModal('${d.mac}', 'ble', '${d.vendor || ''}', '', '${(d.name || '').replace(/'/g, "\\'")}')" title="Add note">📝</button>
                     </div>
                 </li>
-            `).join('');
+            `}).join('');
         }
 
         function renderNewDevices() {
@@ -3283,12 +3311,11 @@
                 if (startMhz) body.start_mhz = parseInt(startMhz);
                 if (endMhz) body.end_mhz = parseInt(endMhz);
                 
-                const response = await fetch('/api/sdr/spectrum/scan', {
+                const data = await safeFetchJson('/api/sdr/spectrum/scan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const data = await response.json();
                 
                 if (data.error) {
                     display.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}<br><small>${data.hint || ''}</small></div>`;
@@ -3556,6 +3583,66 @@
             }
         }
         
+        // Legal modal functions
+        async function showLegalModal() {
+            document.getElementById('legalModal').classList.add('active');
+            try {
+                const data = await safeFetchJson('/api/legal');
+                document.getElementById('legalContent').textContent = data.legal_text || 'Legal text unavailable';
+            } catch (e) {
+                document.getElementById('legalContent').textContent = 'Failed to load legal text: ' + e.message;
+            }
+            // Check existing acceptance
+            try {
+                const status = await safeFetchJson('/api/legal/status');
+                if (status.accepted) {
+                    document.getElementById('legalAcceptCheck').checked = true;
+                    document.getElementById('legalAcceptBtn').disabled = false;
+                    document.getElementById('legalAcceptBtn').style.opacity = '1';
+                    document.getElementById('legalAcceptBtn').textContent = 'Already Accepted';
+                }
+            } catch (e) { /* ignore */ }
+        }
+        
+        function closeLegalModal() {
+            document.getElementById('legalModal').classList.remove('active');
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const cb = document.getElementById('legalAcceptCheck');
+            if (cb) cb.addEventListener('change', () => {
+                const btn = document.getElementById('legalAcceptBtn');
+                btn.disabled = !cb.checked;
+                btn.style.opacity = cb.checked ? '1' : '0.5';
+            });
+        });
+        
+        async function acceptLegal() {
+            try {
+                await safeFetchJson('/api/legal/accept', { method: 'POST' });
+                document.getElementById('legalAcceptBtn').textContent = 'Accepted ✓';
+                document.getElementById('legalAcceptBtn').disabled = true;
+                setTimeout(closeLegalModal, 1000);
+            } catch (e) {
+                alert('Failed to record acceptance: ' + e.message);
+            }
+        }
+        
+        // Safe fetch helper - handles empty/error responses gracefully
+        async function safeFetchJson(url, options = {}) {
+            const response = await fetch(url, options);
+            const text = await response.text();
+            if (!text || text.trim() === '') {
+                if (!response.ok) throw new Error(`Server returned ${response.status} ${response.statusText} (empty response)`);
+                return {};
+            }
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 200)}`);
+            }
+        }
+
         // ============================================
         // TSCM Tab Functions
         // ============================================
@@ -3571,12 +3658,11 @@
             document.getElementById('sweepProgressText').textContent = 'Starting sweep...';
             
             try {
-                const response = await fetch('/api/sdr/tscm/sweep', {
+                const data = await safeFetchJson('/api/sdr/tscm/sweep', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sweep_type: sweepType })
                 });
-                const data = await response.json();
                 
                 if (data.error) {
                     alert('Error: ' + data.error + (data.hint ? '\n' + data.hint : ''));
@@ -3619,8 +3705,7 @@
         
         async function refreshTscmStatus() {
             try {
-                const response = await fetch('/api/sdr/tscm/status');
-                const data = await response.json();
+                const data = await safeFetchJson('/api/sdr/tscm/status');
                 
                 document.getElementById('tscmProgress').textContent = Math.round(data.progress || 0) + '%';
                 document.getElementById('tscmThreatsFound').textContent = data.threats_found || 0;
@@ -3683,8 +3768,7 @@
             container.innerHTML = '<div class="empty-state">Loading threat database...</div>';
             
             try {
-                const response = await fetch('/api/sdr/tscm/threats');
-                const data = await response.json();
+                const data = await safeFetchJson('/api/sdr/tscm/threats');
                 
                 if (!data.threat_database || data.threat_database.length === 0) {
                     container.innerHTML = '<div class="empty-state">Threat database empty</div>';
@@ -3711,8 +3795,7 @@
             container.innerHTML = '<div class="empty-state">Scanning RF bands (2.4/5.8 GHz)...</div>';
             
             try {
-                const response = await fetch('/api/sdr/drone/scan', { method: 'POST' });
-                const data = await response.json();
+                const data = await safeFetchJson('/api/sdr/drone/scan', { method: 'POST' });
                 renderDroneResults(data, 'RF');
             } catch (e) {
                 container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">RF scan failed: ${e.message}</div>`;
@@ -3724,8 +3807,7 @@
             container.innerHTML = '<div class="empty-state">Scanning EMI (motor harmonics)...</div>';
             
             try {
-                const response = await fetch('/api/sdr/drone/emi', { method: 'POST' });
-                const data = await response.json();
+                const data = await safeFetchJson('/api/sdr/drone/emi', { method: 'POST' });
                 renderDroneResults(data, 'EMI');
             } catch (e) {
                 container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">EMI scan failed: ${e.message}</div>`;
@@ -3737,8 +3819,7 @@
             container.innerHTML = '<div class="empty-state">Running full scan (RF + EMI)...</div>';
             
             try {
-                const response = await fetch('/api/sdr/drone/scan/full', { method: 'POST' });
-                const data = await response.json();
+                const data = await safeFetchJson('/api/sdr/drone/scan/full', { method: 'POST' });
                 
                 if (data.error) {
                     container.innerHTML = `<div class="empty-state" style="color: var(--accent-red);">${data.error}</div>`;

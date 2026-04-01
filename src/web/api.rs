@@ -219,6 +219,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/contacts/{mac}", web::get().to(get_contact_detail))
             .route("/contacts/{mac}/timeline", web::get().to(get_contact_timeline))
             .route("/database/stats", web::get().to(get_database_stats))
+            // Legal
+            .route("/legal", web::get().to(get_legal))
+            .route("/legal/accept", web::post().to(accept_legal))
+            .route("/legal/status", web::get().to(legal_status))
     );
 }
 
@@ -2517,21 +2521,37 @@ async fn scan_spectrum(body: web::Json<SpectrumScanRequest>) -> impl Responder {
     }
     
     let (start_mhz, end_mhz) = if let Some(band_name) = &body.band {
-        // Look up predefined band - normalize names by removing spaces and special chars
+        // Map UI dropdown values to band names, plus normalize for fuzzy match
+        let alias_map: std::collections::HashMap<&str, &str> = [
+            ("ism315", "ISM 315"), ("ism433", "ISM 433"), ("ism868", "ISM 868"), ("ism915", "ISM 915"),
+            ("wifi24", "WiFi 2.4GHz"), ("wifi", "WiFi 2.4GHz"),
+            ("gsm850", "Cellular 850"), ("gsm1900", "Cellular 1900"),
+            ("lte700", "Cellular 700"), ("cellular700", "Cellular 700"),
+            ("cellular850", "Cellular 850"), ("cellular1900", "Cellular 1900"),
+            ("gps", "GPS L1"), ("gpsl1", "GPS L1"),
+            ("drones", "Drone 5.8GHz"), ("drone", "Drone 5.8GHz"), ("fpv", "Drone 5.8GHz"),
+        ].iter().cloned().collect();
+        
         let bands = FrequencyBand::common_bands();
         let normalize = |s: &str| s.to_lowercase().replace(" ", "").replace("-", "").replace(".", "");
         let search_normalized = normalize(band_name);
         
+        // First check alias map
+        let resolved_name = alias_map.get(search_normalized.as_str()).map(|s| s.to_string());
+        
         if let Some(band) = bands.iter().find(|b| {
             let name_normalized = normalize(&b.name);
-            // Match if either contains the other (handles "ism433" matching "ISM 433")
-            name_normalized.contains(&search_normalized) || search_normalized.contains(&name_normalized)
+            if let Some(ref resolved) = resolved_name {
+                b.name == *resolved
+            } else {
+                name_normalized.contains(&search_normalized) || search_normalized.contains(&name_normalized)
+            }
         }) {
             ((band.start_hz / 1_000_000) as u32, (band.end_hz / 1_000_000) as u32)
         } else {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": "Unknown band",
-                "hint": format!("Band '{}' not found. Available bands: ISM 315, ISM 433, ISM 868, ISM 915, WiFi 2.4GHz, Cellular 700/850/1900, GPS L1, Drone 5.8GHz", band_name),
+                "hint": format!("Band '{}' not found. Use: ism315, ism433, ism868, ism915, wifi24, gsm850, gsm1900, lte700, gps, drones", band_name),
                 "available_bands": bands.iter().map(|b| &b.name).collect::<Vec<_>>()
             }));
         }
@@ -4073,5 +4093,67 @@ async fn get_tscm_threats() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "threat_database": threats,
         "total_bands": threats.len()
+    }))
+}
+
+// Legal disclaimer endpoint
+async fn get_legal() -> impl Responder {
+    use crate::settings::LEGAL_DISCLAIMER;
+    
+    // Try to read LEGAL.md from disk first, fall back to embedded disclaimer
+    let legal_md = if let Some(dir) = crate::web::find_static_dir() {
+        let legal_path = dir.join("../LEGAL.md");
+        if legal_path.exists() {
+            std::fs::read_to_string(&legal_path).ok()
+        } else {
+            // Also try in the static dir itself
+            let alt = dir.join("LEGAL.md");
+            if alt.exists() {
+                std::fs::read_to_string(&alt).ok()
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "legal_text": legal_md.unwrap_or_else(|| LEGAL_DISCLAIMER.to_string()),
+        "version": "1.0",
+        "requires_acceptance": true
+    }))
+}
+
+async fn accept_legal() -> impl Responder {
+    let marker = std::path::Path::new("/data/.disclaimer_accepted");
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(marker, format!("accepted_at={}", chrono::Utc::now().to_rfc3339()));
+    
+    // Also try home directory fallback
+    if let Ok(home) = std::env::var("HOME") {
+        let home_marker = format!("{}/.sigint-disclaimer-accepted", home);
+        let _ = std::fs::write(&home_marker, format!("accepted_at={}", chrono::Utc::now().to_rfc3339()));
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "accepted",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+}
+
+async fn legal_status() -> impl Responder {
+    let accepted = std::path::Path::new("/data/.disclaimer_accepted").exists() || {
+        if let Ok(home) = std::env::var("HOME") {
+            std::path::Path::new(&format!("{}/.sigint-disclaimer-accepted", home)).exists()
+        } else {
+            false
+        }
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "accepted": accepted
     }))
 }

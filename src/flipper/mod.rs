@@ -144,7 +144,7 @@ pub enum LedColor {
 }
 
 /// Risk level for Flipper actions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskLevel {
     Low,      // Read-only operations
     Medium,   // File writes, emulation

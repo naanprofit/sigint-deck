@@ -86,11 +86,52 @@ impl SdrCapabilities {
 }
 
 fn check_command(cmd: &str, args: &[&str]) -> bool {
-    Command::new(cmd)
+    // Try the command directly (uses PATH)
+    if Command::new(cmd)
         .args(args)
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
         .output()
-        .map(|o| o.status.success() || o.status.code() == Some(1)) // -h often returns 1
+        .map(|o| o.status.success() || o.status.code() == Some(1))
         .unwrap_or(false)
+    {
+        return true;
+    }
+    
+    // Also check common install locations (service may not have full PATH)
+    let home = std::env::var("HOME").unwrap_or_default();
+    let extra_paths = [
+        format!("{}/bin/{}", home, cmd),
+        format!("/usr/local/bin/{}", cmd),
+        format!("/usr/bin/{}", cmd),
+    ];
+    
+    for path in &extra_paths {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// Resolve full path for an SDR command, checking ~/bin and standard locations
+pub fn resolve_sdr_command(cmd: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        format!("{}/bin/{}", home, cmd),
+        format!("/usr/local/bin/{}", cmd),
+        format!("/usr/bin/{}", cmd),
+        cmd.to_string(),
+    ];
+    
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return path.clone();
+        }
+    }
+    
+    cmd.to_string()
 }
 
 fn detect_sdr_devices() -> Vec<SdrDeviceInfo> {

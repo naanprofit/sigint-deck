@@ -16,7 +16,7 @@ use crate::ScanEvent;
 
 /// Find the static files directory
 /// Tries multiple locations to support different deployment scenarios
-fn find_static_dir() -> Option<PathBuf> {
+pub(crate) fn find_static_dir() -> Option<PathBuf> {
     // Get current working directory
     let cwd = std::env::current_dir().ok();
     
