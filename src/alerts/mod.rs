@@ -360,42 +360,58 @@ impl AlertManagerState {
         // Route alert based on type AND priority
         // Critical security events go everywhere; lower-priority items go to appropriate channels
         let channels = match (&alert.alert_type, &alert.priority) {
-            // IMSI catchers and surveillance: always all channels
+            // IMSI catchers and surveillance: ALL channels including TTS
             (AlertType::ImsiCatcher, _) | (AlertType::SurveillanceDevice, _) =>
-                vec!["telegram", "twilio", "email", "mqtt"],
-            // Drone detection: high urgency channels
+                vec!["tts", "telegram", "twilio", "email", "mqtt"],
+            // Drone detection: TTS + high urgency channels
             (AlertType::DroneDetected, _) =>
-                vec!["telegram", "twilio", "mqtt"],
-            // TSCM threats: depends on priority
+                vec!["tts", "telegram", "twilio", "mqtt"],
+            // TSCM threats: TTS for critical, depends on priority
             (AlertType::TscmThreat, AlertPriority::Critical) =>
-                vec!["telegram", "twilio", "email", "mqtt"],
+                vec!["tts", "telegram", "twilio", "email", "mqtt"],
+            (AlertType::TscmThreat, AlertPriority::High) =>
+                vec!["tts", "telegram", "mqtt"],
             (AlertType::TscmThreat, _) =>
                 vec!["telegram", "mqtt"],
-            // WiFi attacks: based on priority
+            // WiFi attacks: TTS for critical
             (AlertType::AttackDetected, AlertPriority::Critical) =>
-                vec!["telegram", "twilio", "email", "mqtt"],
+                vec!["tts", "telegram", "twilio", "email", "mqtt"],
             (AlertType::AttackDetected, _) =>
                 vec!["telegram", "mqtt"],
-            // Tracker detection: high urgency
+            // Tracker detection: TTS + high urgency
             (AlertType::TrackerDetected, _) =>
-                vec!["telegram", "twilio", "mqtt"],
-            // RF anomalies: log only unless critical
+                vec!["tts", "telegram", "twilio", "mqtt"],
+            // RF anomalies: TTS only for critical
             (AlertType::RfAnomaly, AlertPriority::Critical) =>
-                vec!["telegram", "mqtt"],
+                vec!["tts", "telegram", "mqtt"],
             (AlertType::RfAnomaly, _) =>
                 vec!["mqtt"],
-            // Geofence: notification channels
+            // Geofence: TTS + notification channels
             (AlertType::GeofenceBreach, _) =>
-                vec!["telegram", "mqtt"],
+                vec!["tts", "telegram", "mqtt"],
             // Generic priority-based routing
-            (_, AlertPriority::Critical) => vec!["telegram", "twilio", "email", "mqtt"],
-            (_, AlertPriority::High) => vec!["telegram", "twilio", "mqtt"],
+            (_, AlertPriority::Critical) => vec!["tts", "telegram", "twilio", "email", "mqtt"],
+            (_, AlertPriority::High) => vec!["tts", "telegram", "twilio", "mqtt"],
             (_, AlertPriority::Medium) => vec!["telegram", "mqtt"],
             (_, AlertPriority::Low) => vec!["mqtt"],
         };
 
         for channel in channels {
             match channel {
+                "tts" => {
+                    // TTS alert via Piper - only if enabled globally
+                    if crate::web::api::is_tts_enabled() {
+                        let tts_message = format!(
+                            "Alert: {}. {}",
+                            alert.title, alert.message
+                        );
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::web::api::speak_alert(&tts_message).await {
+                                tracing::warn!("TTS alert failed: {}", e);
+                            }
+                        });
+                    }
+                }
                 "telegram" => {
                     if let Some(ref tg) = self.telegram {
                         if let Err(e) = tg.send(alert).await {

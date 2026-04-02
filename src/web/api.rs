@@ -5653,6 +5653,14 @@ async fn call_llm(config: &crate::config::LlmConfig, prompt: &str) -> Result<Str
 
 static TTS_ALERT_ENABLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
+pub fn is_tts_enabled() -> bool {
+    *TTS_ALERT_ENABLED.lock().unwrap()
+}
+
+pub async fn speak_alert(text: &str) -> Result<(), String> {
+    speak_summary(text).await
+}
+
 #[derive(Deserialize)]
 struct TtsAnnounceRequest {
     message: String,
