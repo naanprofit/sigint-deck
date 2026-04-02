@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0] - 2026-04-02
+
+### Added
+- **SIEM Security Event Log**: Full security information and event management system using SQLite FTS5 full-text search. 4GB rolling log budget with auto-pruning. `siem_events` table with severity/category/source filtering. NDJSON export. Log forwarding config (syslog/webhook/file). New SIEM tab in web UI.
+- **SIEM Time Presets & Watch Mode**: Last Hour, Last 24h, Last 7d, Last 30d quick-filter buttons. Custom date range picker (from/to). Watch mode auto-refreshes every 5s with rolling time window.
+- **Sentinel Mode**: Continuous threat monitoring toggle. Starts all SDR monitors (drone, TSCM, RTL-433). 30s watchlist scanning loop checks WiFi/BLE devices against threat watchlist and threat intel database. Auto-restarts stopped monitors. Logs all hits to SIEM.
+- **Threat Watchlist**: `threat_watchlist` table for known bad actors. MAC address and RF signature matching. Manual add/remove via API. Auto-checked during Sentinel scans.
+- **Device Alert Silencing**: Click mute button on any WiFi/BLE device to suppress future alerts. Global `SILENCED_DEVICES` set in alerts module. `/api/devices/{mac}/silence` endpoints. Persists across sessions.
+- **CW/Morse Decoder**: Goertzel tone detection for CW signals. Ham band presets (160m through 10m). `rtl_fm` USB demodulation mode. Morse-to-text lookup table. Browser audio streaming for live monitoring.
+- **Browser TTS Alerts**: Web Speech API primary, Piper WAV fallback at `/api/tts/generate`. Polls `/api/alerts/tts/pending` every 3s. Auto-speaks critical/high priority alerts. Toggle in settings.
+- **Multi-Device SDR Detection**: Detects ALL RTL-SDR devices with indices. Detects ALL HackRF devices with serials. Auto-identifies KrakenSDR (5x RTL-SDR) and KerberosSDR (4x RTL-SDR) coherent arrays.
+- **New SDR Device Support**: Airspy R2, Airspy Mini, Airspy HF+ Discovery, SDRplay RSP, KrakenSDR (5ch coherent), KerberosSDR (4ch coherent), ADALM-PLUTO.
+- **Antenna Array Mapping**: Database tables for SDR device registry, antenna positions (X/Y/Z, bearing, gain), and array configs. API endpoints for managing direction-finding antenna arrays.
+- **Cheaper SDR Alternatives Guide**: Built-in recommendations: RTL-SDR V4 ($30), Airspy Mini ($100), SDRplay RSP1B ($110), KrakenSDR ($150), ADALM-PLUTO ($150), Airspy R2 ($170).
+- **Flipper Zero Integration** (feature flag `--features flipper`): Sub-GHz replay, RFID, IR via serial connection.
+- **MCP Tools**: `silence_device`, `unsilence_device`, `get_silenced_devices`, `morse_decoder_start/stop/status`, `tune_ham_radio`, `siem_search`, `siem_stats`, `siem_add_event`.
+
+### Changed
+- **Settings/About Unified**: Removed separate About tab. Merged version info, hardware status, and legal disclaimer into Settings tab. Full GPL-3.0-or-later terms with assumption of risk text.
+- **Default Port**: Standardized on port 8085 (was 8080).
+- **Settings Page**: Fixed version to v0.3.0, expanded hardware requirements (added Flipper Zero), fixed `/api/status` endpoint.
+
+### Build Notes
+- Build with Flipper support: `cargo build --release --features flipper`
+- Binary size: ~15MB (x86_64)
+- Build requires: libdbus-1-dev, libssl-dev, libpcap-dev, libudev-dev (for serialport/flipper)
+- Tested on Steam Deck (SteamOS / Arch Linux)
+
 ## [0.2.3] - 2026-04-01
 
 ### Fixed
