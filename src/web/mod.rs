@@ -78,7 +78,18 @@ pub async fn start_server(
     // Spawn event handler to update state from scan events
     let state_clone = state.clone();
     tokio::spawn(async move {
-        while let Ok(event) = event_rx.recv().await {
+        loop {
+            let event = match event_rx.recv().await {
+                Ok(event) => event,
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("Web state handler lagged {} events, resuming", n);
+                    continue;
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    tracing::info!("Event channel closed, stopping web state handler");
+                    break;
+                }
+            };
             match event {
                 ScanEvent::WifiDevice(device) => {
                     let mut devices = state_clone.wifi_devices.write().await;
