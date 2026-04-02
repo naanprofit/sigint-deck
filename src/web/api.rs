@@ -1505,6 +1505,17 @@ async fn save_settings(
                 if let Some(enabled) = obj.get("enabled").and_then(|v| v.as_bool()) {
                     wifi_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
                 }
+                if let Some(interface) = obj.get("interface").and_then(|v| v.as_str()) {
+                    if !interface.is_empty() {
+                        wifi_t.insert("interface".to_string(), toml::Value::String(interface.to_string()));
+                    }
+                }
+                if let Some(attack_detection) = obj.get("attack_detection").and_then(|v| v.as_bool()) {
+                    wifi_t.insert("attack_detection".to_string(), toml::Value::Boolean(attack_detection));
+                }
+                if let Some(capture_pcap) = obj.get("capture_pcap").and_then(|v| v.as_bool()) {
+                    wifi_t.insert("capture_pcap".to_string(), toml::Value::Boolean(capture_pcap));
+                }
             }
         }
         
@@ -5676,6 +5687,8 @@ async fn tts_announce(body: web::Json<TtsAnnounceRequest>) -> impl Responder {
 async fn speak_summary(text: &str) -> Result<(), String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let piper_candidates = [
+        format!("{}/sigint-deck/venv/bin/piper", home),
+        format!("{}/sigint-pi/venv/bin/piper", home),
         format!("{}/bin/piper", home),
         "/usr/local/bin/piper".to_string(),
         "/usr/bin/piper".to_string(),

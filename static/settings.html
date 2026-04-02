@@ -694,7 +694,7 @@
                         <div>WiFi Interface</div>
                         <div class="description">Network interface for monitoring</div>
                     </label>
-                    <input type="text" class="text-input" id="wifiInterface" value="wlan1">
+                    <input type="text" class="text-input" id="wifiInterface" value="" placeholder="e.g. wlan0, wlan6">
                 </div>
                 <div class="setting-item">
                     <label>
@@ -1430,7 +1430,7 @@
 
             // Scanning
             document.getElementById('wifiEnabled').checked = s.wifi?.enabled !== false;
-            document.getElementById('wifiInterface').value = s.wifi?.interface || 'wlan1';
+            document.getElementById('wifiInterface').value = s.wifi?.interface || '';
             document.getElementById('attackDetection').checked = s.wifi?.attack_detection !== false;
             document.getElementById('pcapCapture').checked = s.wifi?.capture_pcap || false;
             document.getElementById('bleEnabled').checked = s.bluetooth?.enabled !== false;
