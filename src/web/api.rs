@@ -5557,7 +5557,6 @@ struct IntelSummaryRequest {
 
 async fn generate_intel_summary(
     body: web::Json<IntelSummaryRequest>,
-    config: web::Data<crate::config::Config>,
 ) -> impl Responder {
     // Gather current scan state for the summary
     let sdr_caps = crate::sdr::SdrCapabilities::detect();
@@ -5674,7 +5673,25 @@ async fn call_llm(config: &crate::config::LlmConfig, prompt: &str) -> Result<Str
 // TTS Alerts
 // ============================================
 
-static TTS_ALERT_ENABLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static TTS_ALERT_ENABLED: Lazy<Mutex<bool>> = Lazy::new(|| {
+    // Load initial value from config.toml
+    let home = dirs::home_dir().unwrap_or_default();
+    for dir in &["sigint-deck", "sigint-pi"] {
+        let path = home.join(dir).join("config.toml");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(config) = toml::from_str::<toml::Value>(&content) {
+                if let Some(enabled) = config.get("alerts")
+                    .and_then(|a| a.get("tts"))
+                    .and_then(|t| t.get("enabled"))
+                    .and_then(|v| v.as_bool())
+                {
+                    return Mutex::new(enabled);
+                }
+            }
+        }
+    }
+    Mutex::new(false)
+});
 
 pub fn is_tts_enabled() -> bool {
     *TTS_ALERT_ENABLED.lock().unwrap()
@@ -5758,6 +5775,28 @@ struct TtsAlertConfigRequest {
 async fn set_tts_alert_config(body: web::Json<TtsAlertConfigRequest>) -> impl Responder {
     if let Some(enabled) = body.enabled {
         *TTS_ALERT_ENABLED.lock().unwrap() = enabled;
+        // Persist to config.toml
+        let home = dirs::home_dir().unwrap_or_default();
+        let config_paths = [
+            home.join("sigint-deck").join("config.toml"),
+            home.join("sigint-pi").join("config.toml"),
+        ];
+        if let Some(path) = config_paths.iter().find(|p| p.exists()) {
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            let mut config: toml::Value = toml::from_str(&content).unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
+            if let toml::Value::Table(ref mut root) = config {
+                let alerts = root.entry("alerts".to_string())
+                    .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+                if let toml::Value::Table(ref mut alerts_t) = alerts {
+                    let tts = alerts_t.entry("tts".to_string())
+                        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+                    if let toml::Value::Table(ref mut tts_t) = tts {
+                        tts_t.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+                    }
+                }
+            }
+            let _ = std::fs::write(path, toml::to_string_pretty(&config).unwrap_or_default());
+        }
     }
     get_tts_alert_config().await
 }
