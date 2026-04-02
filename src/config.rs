@@ -104,7 +104,7 @@ impl Default for OpenClawConfig {
             api_key: None,
             relay_enabled: false,
             relay_min_level: "high".to_string(),
-            relay_listen_port: Some(8081),
+            relay_listen_port: Some(8082),
             peers: Vec::new(),
             include_location: false,
             relay_categories: Vec::new(),
@@ -189,7 +189,7 @@ pub struct RayHunterConfig {
     pub alert_template: Option<String>,
 }
 
-fn default_rayhunter_url() -> String { "http://localhost:8081".to_string() }
+fn default_rayhunter_url() -> String { "http://localhost:8082".to_string() }
 fn default_rayhunter_interval() -> u64 { 5 }
 
 impl Default for RayHunterConfig {

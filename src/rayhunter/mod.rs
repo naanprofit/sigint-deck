@@ -79,7 +79,7 @@ impl RayHunterClient {
     pub async fn ensure_adb_forward(&self) -> bool {
         let port = self.config.api_url.split(':').last()
             .and_then(|p| p.trim_matches('/').parse::<u16>().ok())
-            .unwrap_or(8081);
+            .unwrap_or(8082);
         
         // Use full path and ensure HOME is set for ADB auth keys
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
