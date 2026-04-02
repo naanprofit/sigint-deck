@@ -5697,7 +5697,28 @@ pub fn is_tts_enabled() -> bool {
     *TTS_ALERT_ENABLED.lock().unwrap()
 }
 
+static TTS_SPEAKING: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
+static TTS_COOLDOWN: Lazy<Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+
+const TTS_COOLDOWN_SECS: u64 = 60;
+
 pub async fn speak_alert(text: &str) -> Result<(), String> {
+    // Dedup: skip if we announced the same text within cooldown window
+    {
+        let mut cooldown = TTS_COOLDOWN.lock().unwrap();
+        let now = std::time::Instant::now();
+        // Prune old entries
+        cooldown.retain(|_, t| now.duration_since(*t).as_secs() < TTS_COOLDOWN_SECS * 2);
+        if let Some(last) = cooldown.get(text) {
+            if now.duration_since(*last).as_secs() < TTS_COOLDOWN_SECS {
+                return Ok(()); // Skip duplicate
+            }
+        }
+        cooldown.insert(text.to_string(), now);
+    }
+    // Serialize playback so alerts don't overlap
+    let _lock = TTS_SPEAKING.lock().await;
     speak_summary(text).await
 }
 
