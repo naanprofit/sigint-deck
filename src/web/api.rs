@@ -6582,6 +6582,7 @@ struct SiemQuery {
     severity: Option<String>,
     category: Option<String>,
     since: Option<String>,
+    until: Option<String>,
 }
 
 fn default_siem_limit() -> i64 { 100 }
@@ -6592,7 +6593,7 @@ async fn siem_get_events(
 ) -> impl Responder {
     match db.siem_search("", query.limit, query.offset,
                          query.severity.as_deref(), query.category.as_deref(),
-                         query.since.as_deref()).await {
+                         query.since.as_deref(), query.until.as_deref()).await {
         Ok(events) => HttpResponse::Ok().json(serde_json::json!({
             "events": events,
             "count": events.len(),
@@ -6646,6 +6647,7 @@ struct SiemSearchQuery {
     severity: Option<String>,
     category: Option<String>,
     since: Option<String>,
+    until: Option<String>,
 }
 
 async fn siem_search_events(
@@ -6654,7 +6656,7 @@ async fn siem_search_events(
 ) -> impl Responder {
     match db.siem_search(&query.q, query.limit, query.offset,
                          query.severity.as_deref(), query.category.as_deref(),
-                         query.since.as_deref()).await {
+                         query.since.as_deref(), query.until.as_deref()).await {
         Ok(events) => HttpResponse::Ok().json(serde_json::json!({
             "events": events,
             "count": events.len(),
@@ -6708,7 +6710,7 @@ async fn siem_export_events(
     let limit = query.limit.min(10000);
     match db.siem_search("", limit, 0,
                          query.severity.as_deref(), query.category.as_deref(),
-                         query.since.as_deref()).await {
+                         query.since.as_deref(), query.until.as_deref()).await {
         Ok(events) => {
             let ndjson: String = events.iter()
                 .map(|e| serde_json::to_string(e).unwrap_or_default())

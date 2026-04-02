@@ -906,7 +906,7 @@ impl Database {
 
     pub async fn siem_search(&self, query: &str, limit: i64, offset: i64,
                               severity: Option<&str>, category: Option<&str>,
-                              since: Option<&str>) -> Result<Vec<SiemEvent>> {
+                              since: Option<&str>, until: Option<&str>) -> Result<Vec<SiemEvent>> {
         let mut sql = String::from(
             "SELECT e.id, e.timestamp, e.source, e.severity, e.category, e.device_mac, e.message, e.raw_data, e.latitude, e.longitude
              FROM siem_events e"
@@ -931,6 +931,9 @@ impl Database {
         }
         if let Some(ts) = since {
             conditions.push(format!("e.timestamp >= '{}'", ts.replace('\'', "''")));
+        }
+        if let Some(ts) = until {
+            conditions.push(format!("e.timestamp <= '{}'", ts.replace('\'', "''")));
         }
 
         if !conditions.is_empty() {
