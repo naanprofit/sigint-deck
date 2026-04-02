@@ -1241,6 +1241,18 @@ async fn get_settings() -> impl Responder {
                             .and_then(|w| w.get("enabled"))
                             .and_then(|v| v.as_bool())
                             .unwrap_or(true),
+                        "interface": config.get("wifi")
+                            .and_then(|w| w.get("interface"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("wlan1"),
+                        "attack_detection": config.get("wifi")
+                            .and_then(|w| w.get("attack_detection"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true),
+                        "capture_pcap": config.get("wifi")
+                            .and_then(|w| w.get("capture_pcap"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
                     },
                     "bluetooth": {
                         "enabled": config.get("bluetooth")
