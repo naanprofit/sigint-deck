@@ -216,6 +216,19 @@ pub const DRONE_SSID_PREFIXES: &[(&str, DroneManufacturer)] = &[
     ("VISUO", DroneManufacturer::Generic),
 ];
 
+/// Additional SSID substrings that indicate drone controllers
+/// (some DJI controllers use cellular modem SSIDs with embedded model numbers)
+pub const DRONE_SSID_SUBSTRINGS: &[(&str, DroneManufacturer)] = &[
+    ("RC400L", DroneManufacturer::Dji),    // DJI RC with LTE (Verizon)
+    ("RC230", DroneManufacturer::Dji),     // DJI RC Pro
+    ("RC231", DroneManufacturer::Dji),     // DJI RC Pro v2
+    ("RC-N1", DroneManufacturer::Dji),     // DJI RC-N1
+    ("RC-N2", DroneManufacturer::Dji),     // DJI RC-N2
+    ("DJI-RC", DroneManufacturer::Dji),    // DJI RC variants
+    ("OcuSync", DroneManufacturer::Dji),   // OcuSync link
+    ("SkyLink", DroneManufacturer::Autel), // Autel SkyLink
+];
+
 pub fn mac_to_bytes(mac: &str) -> Option<[u8; 3]> {
     let parts: Vec<&str> = mac.split(':').collect();
     if parts.len() < 3 {
@@ -246,6 +259,12 @@ pub fn match_ssid(ssid: &str) -> Option<DroneManufacturer> {
     let ssid_upper = ssid.to_uppercase();
     for (prefix, mfr) in DRONE_SSID_PREFIXES {
         if ssid_upper.starts_with(&prefix.to_uppercase()) {
+            return Some(mfr.clone());
+        }
+    }
+    // Check substring patterns (e.g., "Verizon-RC400L-26" contains "RC400L")
+    for (substr, mfr) in DRONE_SSID_SUBSTRINGS {
+        if ssid_upper.contains(&substr.to_uppercase()) {
             return Some(mfr.clone());
         }
     }
