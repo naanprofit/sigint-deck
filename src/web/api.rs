@@ -252,6 +252,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/flipper/subghz/capture", web::post().to(flipper_subghz_capture))
             .route("/flipper/subghz/replay", web::post().to(flipper_subghz_replay))
 
+            // Device Silencing
+            .route("/devices/{mac}/silence", web::post().to(silence_device_alerts))
+            .route("/devices/{mac}/unsilence", web::post().to(unsilence_device_alerts))
+            .route("/devices/silenced", web::get().to(get_silenced_devices))
+            // Ham Radio - Morse Decoder
+            .route("/sdr/morse/start", web::post().to(start_morse_decoder))
+            .route("/sdr/morse/stop", web::post().to(stop_morse_decoder))
+            .route("/sdr/morse/status", web::get().to(get_morse_status))
+
             // WiFi device filter for TSCM/drone scans
             .route("/sdr/wifi-filter", web::get().to(get_wifi_filter))
             .route("/sdr/wifi-filter", web::post().to(set_wifi_filter))
@@ -6293,4 +6302,258 @@ async fn set_wifi_filter(body: web::Json<WifiFilterRequest>) -> impl Responder {
         *WIFI_FILTER_EXCLUDE_KNOWN.lock().unwrap() = exclude;
     }
     get_wifi_filter().await
+}
+
+// ============================================
+// Device Alert Silencing
+// ============================================
+
+async fn silence_device_alerts(path: web::Path<String>) -> impl Responder {
+    let mac = path.into_inner();
+    crate::alerts::silence_device(&mac);
+    tracing::info!("Silenced alerts for device: {}", mac);
+    HttpResponse::Ok().json(serde_json::json!({
+        "silenced": true,
+        "mac": mac.to_uppercase()
+    }))
+}
+
+async fn unsilence_device_alerts(path: web::Path<String>) -> impl Responder {
+    let mac = path.into_inner();
+    crate::alerts::unsilence_device(&mac);
+    tracing::info!("Unsilenced alerts for device: {}", mac);
+    HttpResponse::Ok().json(serde_json::json!({
+        "silenced": false,
+        "mac": mac.to_uppercase()
+    }))
+}
+
+async fn get_silenced_devices() -> impl Responder {
+    let devices = crate::alerts::get_silenced_devices();
+    HttpResponse::Ok().json(serde_json::json!({
+        "silenced_devices": devices
+    }))
+}
+
+// ============================================
+// Ham Radio - Morse Decoder
+// ============================================
+
+static MORSE_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static MORSE_DECODED: Lazy<Mutex<Vec<serde_json::Value>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static MORSE_FREQ: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(0));
+
+#[derive(Deserialize)]
+struct MorseStartRequest {
+    frequency_hz: u64,
+    #[serde(default = "default_wpm")]
+    wpm: u32,
+    #[serde(default = "default_tone_hz")]
+    tone_hz: u32,
+}
+
+fn default_wpm() -> u32 { 20 }
+fn default_tone_hz() -> u32 { 700 }
+
+async fn start_morse_decoder(body: web::Json<MorseStartRequest>) -> impl Responder {
+    let freq = body.frequency_hz;
+    let wpm = body.wpm;
+    let tone_hz = body.tone_hz;
+
+    if *MORSE_RUNNING.lock().unwrap() {
+        return HttpResponse::Conflict().json(serde_json::json!({"error": "Morse decoder already running"}));
+    }
+
+    *MORSE_RUNNING.lock().unwrap() = true;
+    *MORSE_FREQ.lock().unwrap() = freq;
+    MORSE_DECODED.lock().unwrap().clear();
+
+    // Start rtl_fm in CW mode piped through a tone detector
+    tokio::spawn(async move {
+        let rtl_fm = tokio::process::Command::new("rtl_fm")
+            .args([
+                "-f", &freq.to_string(),
+                "-M", "usb",
+                "-s", "12000",
+                "-g", "40",
+                "-l", "0",
+                "-"
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        match rtl_fm {
+            Ok(mut child) => {
+                if let Some(stdout) = child.stdout.take() {
+                    use tokio::io::AsyncReadExt;
+                    let mut reader = tokio::io::BufReader::new(stdout);
+                    let mut buf = vec![0u8; 2400]; // 100ms of 12kHz 16-bit audio
+                    let sample_rate = 12000.0_f64;
+                    let target_freq = tone_hz as f64;
+                    let dot_duration = 1.2 / wpm as f64;
+
+                    // Goertzel tone detection state
+                    let mut tone_on = false;
+                    let mut tone_start: f64 = 0.0;
+                    let mut silence_start: f64 = 0.0;
+                    let mut current_char = String::new();
+                    let mut decoded_text = String::new();
+                    let mut sample_count: u64 = 0;
+
+                    loop {
+                        if !*MORSE_RUNNING.lock().unwrap() { break; }
+
+                        match reader.read(&mut buf).await {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                let samples = n / 2;
+                                sample_count += samples as u64;
+                                let time = sample_count as f64 / sample_rate;
+
+                                // Goertzel algorithm for tone detection
+                                let k = (0.5 + (samples as f64 * target_freq / sample_rate)) as usize;
+                                let w = 2.0 * std::f64::consts::PI * k as f64 / samples as f64;
+                                let coeff = 2.0 * w.cos();
+                                let mut s0: f64 = 0.0;
+                                let mut s1: f64 = 0.0;
+                                let mut s2: f64 = 0.0;
+
+                                for i in 0..samples {
+                                    let sample = if i * 2 + 1 < n {
+                                        i16::from_le_bytes([buf[i*2], buf[i*2+1]]) as f64 / 32768.0
+                                    } else { 0.0 };
+                                    s0 = coeff * s1 - s2 + sample;
+                                    s2 = s1;
+                                    s1 = s0;
+                                }
+
+                                let power = s1*s1 + s2*s2 - coeff*s1*s2;
+                                let magnitude = power.sqrt();
+                                let is_tone = magnitude > 0.05;
+
+                                if is_tone && !tone_on {
+                                    tone_on = true;
+                                    tone_start = time;
+                                    let silence_dur = time - silence_start;
+                                    // Word gap (7 units)
+                                    if silence_dur > dot_duration * 5.0 && !current_char.is_empty() {
+                                        if let Some(ch) = morse_to_char(&current_char) {
+                                            decoded_text.push(ch);
+                                        }
+                                        decoded_text.push(' ');
+                                        current_char.clear();
+                                    }
+                                    // Char gap (3 units)
+                                    else if silence_dur > dot_duration * 2.0 && !current_char.is_empty() {
+                                        if let Some(ch) = morse_to_char(&current_char) {
+                                            decoded_text.push(ch);
+                                        }
+                                        current_char.clear();
+                                    }
+                                } else if !is_tone && tone_on {
+                                    tone_on = false;
+                                    silence_start = time;
+                                    let tone_dur = time - tone_start;
+                                    if tone_dur > dot_duration * 2.0 {
+                                        current_char.push('-');
+                                    } else {
+                                        current_char.push('.');
+                                    }
+                                }
+
+                                // Periodically push decoded text
+                                if !decoded_text.is_empty() && sample_count % 24000 == 0 {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default().as_secs();
+                                    let mut decoded = MORSE_DECODED.lock().unwrap();
+                                    decoded.push(serde_json::json!({
+                                        "text": decoded_text.clone(),
+                                        "frequency_hz": freq,
+                                        "wpm": wpm,
+                                        "timestamp": now
+                                    }));
+                                    if decoded.len() > 100 { decoded.remove(0); }
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+
+                    // Final flush
+                    if !current_char.is_empty() {
+                        if let Some(ch) = morse_to_char(&current_char) {
+                            decoded_text.push(ch);
+                        }
+                    }
+                    if !decoded_text.is_empty() {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default().as_secs();
+                        let mut decoded = MORSE_DECODED.lock().unwrap();
+                        decoded.push(serde_json::json!({
+                            "text": decoded_text,
+                            "frequency_hz": freq,
+                            "wpm": wpm,
+                            "timestamp": now
+                        }));
+                    }
+                }
+                let _ = child.kill().await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to start rtl_fm for morse: {}", e);
+            }
+        }
+        *MORSE_RUNNING.lock().unwrap() = false;
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "running": true,
+        "frequency_hz": freq,
+        "wpm": wpm,
+        "tone_hz": tone_hz
+    }))
+}
+
+async fn stop_morse_decoder() -> impl Responder {
+    *MORSE_RUNNING.lock().unwrap() = false;
+    HttpResponse::Ok().json(serde_json::json!({"running": false}))
+}
+
+async fn get_morse_status() -> impl Responder {
+    let running = *MORSE_RUNNING.lock().unwrap();
+    let freq = *MORSE_FREQ.lock().unwrap();
+    let decoded = MORSE_DECODED.lock().unwrap().clone();
+    HttpResponse::Ok().json(serde_json::json!({
+        "running": running,
+        "frequency_hz": freq,
+        "decoded": decoded
+    }))
+}
+
+fn morse_to_char(code: &str) -> Option<char> {
+    match code {
+        ".-"    => Some('A'), "-..."  => Some('B'), "-.-."  => Some('C'),
+        "-.."   => Some('D'), "."     => Some('E'), "..-."  => Some('F'),
+        "--."   => Some('G'), "...."  => Some('H'), ".."    => Some('I'),
+        ".---"  => Some('J'), "-.-"   => Some('K'), ".-.."  => Some('L'),
+        "--"    => Some('M'), "-."    => Some('N'), "---"   => Some('O'),
+        ".--."  => Some('P'), "--.-"  => Some('Q'), ".-."   => Some('R'),
+        "..."   => Some('S'), "-"     => Some('T'), "..-"   => Some('U'),
+        "...-"  => Some('V'), ".--"   => Some('W'), "-..-"  => Some('X'),
+        "-.--"  => Some('Y'), "--.."  => Some('Z'),
+        "-----" => Some('0'), ".----" => Some('1'), "..---" => Some('2'),
+        "...--" => Some('3'), "....-" => Some('4'), "....." => Some('5'),
+        "-...." => Some('6'), "--..." => Some('7'), "---.." => Some('8'),
+        "----." => Some('9'),
+        ".-.-.-" => Some('.'), "--..--" => Some(','), "..--.." => Some('?'),
+        ".----." => Some('\''), "-.-.--" => Some('!'), "-..-." => Some('/'),
+        "-.--." => Some('('), "-.--.-" => Some(')'), ".-..." => Some('&'),
+        "---..." => Some(':'), "-.-.-." => Some(';'), "-...-" => Some('='),
+        ".-.-." => Some('+'), "-....-" => Some('-'), "..--.-" => Some('_'),
+        ".-..-." => Some('"'), "...-..-" => Some('$'), ".--.-." => Some('@'),
+        _ => None,
+    }
 }
