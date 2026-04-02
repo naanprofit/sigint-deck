@@ -121,6 +121,21 @@ pub async fn start_server(
                     // Keep only recent devices (last 5 minutes)
                     let cutoff = now - 300;
                     devices.retain(|d| d.last_seen > cutoff);
+
+                    // Check if this WiFi device is a drone (OUI or SSID match)
+                    if let Some((mfr, method)) = crate::sdr::drone_signatures::check_wifi_device_is_drone(
+                        &device.mac_address,
+                        device.ssid.as_deref(),
+                    ) {
+                        crate::web::api::register_drone_wifi(
+                            &device.mac_address,
+                            device.ssid.as_deref(),
+                            device.rssi,
+                            device.channel,
+                            mfr,
+                            method,
+                        );
+                    }
                 }
                 ScanEvent::BleDevice(device) => {
                     let mut devices = state_clone.ble_devices.write().await;
