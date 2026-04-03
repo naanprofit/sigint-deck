@@ -47,11 +47,32 @@ impl WifiScanner {
             .open()
             .context("Failed to open capture (is interface in monitor mode?)")?;
 
-        // Set datalink to IEEE 802.11 with radiotap header
-        cap.set_datalink(pcap::Linktype::IEEE802_11_RADIOTAP)
-            .context("Failed to set datalink type")?;
+        // Try to set radiotap datalink; fall back to whatever the device provides.
+        // Some drivers (rt2800usb/RT5572) already default to radiotap in monitor
+        // mode and reject an explicit set_datalink call.
+        let current_dl = cap.get_datalink();
+        let has_radiotap = current_dl == pcap::Linktype::IEEE802_11_RADIOTAP;
+        if !has_radiotap {
+            match cap.set_datalink(pcap::Linktype::IEEE802_11_RADIOTAP) {
+                Ok(()) => {
+                    info!("Set datalink to IEEE802_11_RADIOTAP");
+                }
+                Err(e) => {
+                    warn!("Could not set radiotap datalink ({}), using current: {:?}", e, current_dl);
+                    // If current is already raw 802.11 (105) or radiotap (127), that's fine.
+                    // If it's Ethernet (1), monitor mode isn't active.
+                    if current_dl == pcap::Linktype(1) {
+                        return Err(anyhow::anyhow!(
+                            "Interface {} is in Ethernet mode (not monitor mode). Enable monitor mode first.", interface
+                        ));
+                    }
+                }
+            }
+        } else {
+            info!("Interface {} already provides radiotap headers", interface);
+        }
 
-        info!("WiFi capture started on {}", interface);
+        info!("WiFi capture started on {} (datalink: {:?})", interface, cap.get_datalink());
 
         // Setup PCAP file saving if enabled
         let mut savefile: Option<Savefile> = None;
@@ -75,6 +96,9 @@ impl WifiScanner {
                     if let Some(wifi_device) = parse_wifi_frame(packet.data) {
                         let _ = tx.send(ScanEvent::WifiDevice(wifi_device));
                     }
+                    
+                    // Deep frame inspection for drone RemoteID / DroneID
+                    Self::check_drone_frames(packet.data);
                 }
                 Err(pcap::Error::TimeoutExpired) => {
                     // Normal timeout, continue
@@ -122,6 +146,93 @@ impl WifiScanner {
         PCAP_BYTES.store(0, Ordering::Relaxed);
         
         Ok(Some(savefile))
+    }
+
+    /// Inspect raw 802.11 frames for drone-specific payloads:
+    /// - Beacon vendor-specific IEs containing DJI DroneID
+    /// - Action frames carrying WiFi NAN ASTM F3411 RemoteID
+    fn check_drone_frames(raw_packet: &[u8]) {
+        use crate::sdr::drone_signatures;
+        
+        if raw_packet.len() < 8 { return; }
+        let rt_len = u16::from_le_bytes([raw_packet[2], raw_packet[3]]) as usize;
+        if raw_packet.len() < rt_len + 24 { return; }
+
+        let frame_start = rt_len;
+        let fc = u16::from_le_bytes([raw_packet[frame_start], raw_packet[frame_start + 1]]);
+        let ftype = (fc & 0x0C) >> 2;
+        let subtype = (fc & 0xF0) >> 4;
+        
+        // Extract source MAC (Address 2)
+        let mac = format!(
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            raw_packet[frame_start + 10], raw_packet[frame_start + 11],
+            raw_packet[frame_start + 12], raw_packet[frame_start + 13],
+            raw_packet[frame_start + 14], raw_packet[frame_start + 15],
+        );
+        
+        // Extract RSSI
+        let rssi = {
+            let present = u32::from_le_bytes([raw_packet[4], raw_packet[5], raw_packet[6], raw_packet[7]]);
+            if (present & 0x20) != 0 {
+                let has_tsft = (present & 0x01) != 0;
+                let has_flags = (present & 0x02) != 0;
+                let has_rate = (present & 0x04) != 0;
+                let has_channel = (present & 0x08) != 0;
+                let has_fhss = (present & 0x10) != 0;
+                let mut off = 8usize;
+                if has_tsft { off = (off + 7) & !7; off += 8; }
+                if has_flags { off += 1; }
+                if has_rate { off += 1; }
+                if has_channel { off = (off + 1) & !1; off += 4; }
+                if has_fhss { off += 2; }
+                if off < raw_packet.len() { raw_packet[off] as i8 as i32 } else { -70 }
+            } else { -70 }
+        };
+        
+        match ftype {
+            // Management frame
+            0 => {
+                if subtype == 8 {
+                    // Beacon: scan tagged parameters for vendor-specific IE with DJI DroneID
+                    let body_start = frame_start + 24;
+                    if body_start < raw_packet.len() {
+                        let frame_body = &raw_packet[body_start..];
+                        if let Some(dji_data) = drone_signatures::scan_beacon_for_droneid(frame_body) {
+                            warn!(
+                                "DJI DroneID in beacon from {} RSSI={}: serial={:?} product_type={:?} drone_lat={:?} drone_lon={:?} alt={:?}m",
+                                mac, rssi, dji_data.serial_number, dji_data.product_type, dji_data.drone_lat, dji_data.drone_lon, dji_data.drone_alt_m
+                            );
+                            crate::web::api::register_drone_wifi_ex(
+                                &mac, None, rssi, 0,
+                                drone_signatures::DroneManufacturer::Dji,
+                                drone_signatures::WifiDetectionMethod::VendorIeDroneId,
+                                dji_data.product_type,
+                            );
+                        }
+                    }
+                }
+                // Action frames (subtype 13)
+                if subtype == 13 {
+                    let body_start = frame_start + 24;
+                    if body_start < raw_packet.len() {
+                        let frame_body = &raw_packet[body_start..];
+                        if let Some(rid) = drone_signatures::parse_nan_remoteid(frame_body) {
+                            warn!(
+                                "RemoteID NAN from {} RSSI={}: uas_id={:?} lat={:?} lon={:?}",
+                                mac, rssi, rid.uas_id, rid.latitude, rid.longitude
+                            );
+                            crate::web::api::register_drone_wifi(
+                                &mac, None, rssi, 0,
+                                drone_signatures::DroneManufacturer::Unknown,
+                                drone_signatures::WifiDetectionMethod::NanRemoteId,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 

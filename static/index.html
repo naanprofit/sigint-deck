@@ -1751,19 +1751,12 @@
         <button class="tab-btn" data-tab="tscm" tabindex="0">
             🔍 TSCM <span class="badge-count" id="tscmBadge">--</span>
         </button>
-        <button class="tab-btn" data-tab="flipper" tabindex="0">
-            🐬 Flipper <span class="badge-count" id="flipperBadge">--</span>
-        </button>
-        <button class="tab-btn" data-tab="intel" tabindex="0">
-            🧠 Intel Feed
-        </button>
         <button class="tab-btn" data-tab="siem" tabindex="0">
             🛡️ SIEM
         </button>
         <button class="tab-btn" data-tab="settings" tabindex="0">
             ⚙️ Settings
         </button>
-
     </nav>
 
     <div class="tab-content active" id="tab-wifi">
@@ -2207,24 +2200,18 @@
                 <div class="sdr-section-header">
                     <h4>🎯 Sweep Controls</h4>
                 </div>
-                <div class="sweep-controls" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
-                    <select id="sweepType" class="spectrum-select" style="width:180px;flex-shrink:0;">
-                        <option value="quick">Quick Sweep</option>
-                        <option value="standard" selected>Standard Sweep</option>
-                        <option value="full">Full Sweep</option>
-                        <option value="federal">Federal Threat</option>
+                <div class="sweep-controls">
+                    <select id="sweepType" class="spectrum-select" style="width: 200px;">
+                        <option value="quick">Quick Sweep (5-10 min)</option>
+                        <option value="standard" selected>Standard Sweep (20-30 min)</option>
+                        <option value="full">Full Sweep (1-2 hours)</option>
+                        <option value="federal">Federal Threat Sweep (Extended)</option>
                     </select>
-                    <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start</button>
-                    <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
-                    <a href="/waterfall.html" class="action-btn" style="text-decoration:none;font-size:0.85rem;">📊 Waterfall</a>
-                </div>
-                <div style="display:flex;gap:1rem;align-items:center;margin-top:0.5rem;font-size:0.85rem;">
-                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
                         <input type="checkbox" id="tscmContinuous"> Continuous
                     </label>
-                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;" title="Filter out known WiFi signals in 2.4/5 GHz bands">
-                        <input type="checkbox" id="wifiFilterToggle" checked onchange="toggleWifiFilter(this.checked)"> Filter WiFi
-                    </label>
+                    <button class="action-btn" id="tscmStartBtn" onclick="startTscmSweep()">▶️ Start Sweep</button>
+                    <button class="action-btn" onclick="stopTscmSweep()">⏹️ Stop</button>
                 </div>
                 
                 <!-- Progress -->
@@ -2425,16 +2412,22 @@
                                 </tr>
                             </thead>
                             <tbody style="color:var(--text-primary);">
-                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);"><td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">SDR Core (you may already own the first two)</td></tr>
+                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);">
+                                    <td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">SDR Core (you may already own the first two)</td>
+                                </tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">4</td><td>RTL-SDR Blog V4</td><td>Sector EMI baseline watch (24-1766 MHz)</td><td style="text-align:right;">~$40 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">4</td><td>HackRF One</td><td>Sector burst capture (1 MHz - 6 GHz, 20 MSPS)</td><td style="text-align:right;">~$340 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1</td><td>KrakenSDR</td><td>5-ch coherent DF (24-1766 MHz)</td><td style="text-align:right;">$749</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1</td><td>Krakentenna matched set (5)</td><td>Phase-matched DF antennas</td><td style="text-align:right;">$249</td></tr>
-                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);"><td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Sector Antennas</td></tr>
+                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);">
+                                    <td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Sector Antennas</td>
+                                </tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">4</td><td>Wideband LPDA (80 MHz - 2 GHz)</td><td>RTL-SDR: broad directional EMI watch</td><td style="text-align:right;">$25-$150 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">2</td><td>Sub-GHz Yagi (900/915 MHz)</td><td>HackRF: telemetry/ISM band watch</td><td style="text-align:right;">$50-$120 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">2</td><td>Dual-band 2.4/5 GHz Panel</td><td>HackRF: WiFi/FPV controller watch</td><td style="text-align:right;">$25-$60 ea</td></tr>
-                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);"><td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">RF Plumbing & Mounting</td></tr>
+                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);">
+                                    <td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">RF Plumbing & Mounting</td>
+                                </tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">8</td><td>Low-loss coax runs</td><td>Antenna to SDR feedlines</td><td style="text-align:right;">$20-$60 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">8</td><td>SMA/N adapters</td><td>Connector matching</td><td style="text-align:right;">$8-$20 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">8</td><td>Mounts / clamps</td><td>Mast or arm attachment</td><td style="text-align:right;">$10-$30 ea</td></tr>
@@ -2442,11 +2435,15 @@
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">8</td><td>Weatherproof boots/tape</td><td>Outdoor connector sealing</td><td style="text-align:right;">$5-$15 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">8+</td><td>Ferrite chokes</td><td>USB/common-mode noise suppression</td><td style="text-align:right;">$5-$15 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1</td><td>Central mast or 4-arm crossboom</td><td>Mount N/S/E/W sectors</td><td style="text-align:right;">$100-$300</td></tr>
-                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);"><td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Compute & Power</td></tr>
+                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);">
+                                    <td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Compute & Power</td>
+                                </tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1</td><td>KrakenSDR host (Pi 4/5 or mini PC)</td><td>DF processing</td><td style="text-align:right;">$35-$150</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1-2</td><td>Powered USB hubs</td><td>Clean power for 8 SDRs</td><td style="text-align:right;">$40-$150 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">1</td><td>Surge-protected power dist.</td><td>Stable field power</td><td style="text-align:right;">$30-$100</td></tr>
-                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);"><td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Optional Front-End</td></tr>
+                                <tr style="border-bottom:1px solid var(--border-color);background:var(--bg-tertiary);">
+                                    <td colspan="4" style="padding:4px;font-weight:bold;color:var(--accent-blue);">Optional Front-End</td>
+                                </tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">--</td><td>Band-pass filters</td><td>Known target bands</td><td style="text-align:right;">$20-$80 ea</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">--</td><td>FM broadcast notch filter</td><td>Strong local FM interference</td><td style="text-align:right;">$15-$30</td></tr>
                                 <tr style="border-bottom:1px solid var(--border-color);"><td style="padding:4px;">--</td><td>LNA (low-noise amplifier)</td><td>Only if long coax runs</td><td style="text-align:right;">$20-$60 ea</td></tr>
@@ -2490,6 +2487,7 @@
                 <div style="margin-bottom:0.75rem;">
                     <h5 style="margin:0.5rem 0 0.25rem;color:var(--text-primary);">Antenna Positions</h5>
                     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                        <!-- Visual map -->
                         <div style="position:relative; width:280px; height:280px; background:var(--bg-tertiary); border-radius:8px; border:1px solid var(--border-color); flex-shrink:0;">
                             <canvas id="antennaMapCanvas" width="280" height="280" style="width:100%;height:100%;"></canvas>
                             <div style="position:absolute;top:4px;left:8px;font-size:0.65rem;color:var(--text-secondary);">N</div>
@@ -2497,6 +2495,7 @@
                             <div style="position:absolute;top:50%;right:4px;font-size:0.65rem;color:var(--text-secondary);transform:translateY(-50%);">E</div>
                             <div style="position:absolute;top:50%;left:4px;font-size:0.65rem;color:var(--text-secondary);transform:translateY(-50%);">W</div>
                         </div>
+                        <!-- Antenna list -->
                         <div style="flex:1; min-width:200px;">
                             <div id="antennaList" style="max-height:240px; overflow-y:auto; font-size:0.8rem;">
                                 <div class="empty-state">No antennas configured</div>
@@ -2565,6 +2564,7 @@
         </div>
     </div>
     
+    <!-- Settings Tab -->
     <!-- SIEM Tab -->
     <div class="tab-content" id="tab-siem">
         <div class="sdr-panel">
@@ -2667,7 +2667,6 @@
         </div>
     </div>
 
-    <!-- Settings Tab -->
     <div class="tab-content" id="tab-settings">
         <div class="settings-section">
             <h3>Quick Settings</h3>
@@ -2675,6 +2674,10 @@
                 <div class="setting-item">
                     <label>Ninja Mode (Silent)</label>
                     <button id="ninjaToggle" class="toggle-btn">OFF</button>
+                </div>
+                <div class="setting-item">
+                    <label>Browser TTS Alerts</label>
+                    <button id="browserTtsToggle" class="toggle-btn" onclick="toggleBrowserTts()">🔇 TTS OFF</button>
                 </div>
                 <div class="setting-item">
                     <label>PCAP Capture</label>
@@ -2719,23 +2722,23 @@
         </div>
         
         <div class="settings-section">
-            <h3>Configuration</h3>
-            <button id="saveConfig" class="action-btn save-btn">Save Settings</button>
-            <span id="saveStatus" style="margin-left: 1rem;"></span>
-        </div>
-
-        <div class="settings-section">
             <h3>Silenced Devices</h3>
             <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Devices below will not generate alerts. Silence from the WiFi or BLE device list.</p>
             <div id="silencedDevicesList" style="font-size: 0.85rem; color: var(--text-secondary);">Loading...</div>
             <button class="action-btn" onclick="loadSilencedDevices()" style="margin-top: 0.5rem;">🔄 Refresh</button>
         </div>
 
+        <div class="settings-section">
+            <h3>Configuration</h3>
+            <button id="saveConfig" class="action-btn save-btn">Save Settings</button>
+            <span id="saveStatus" style="margin-left: 1rem;"></span>
+        </div>
+
         <div class="settings-section" style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1rem;">
             <h3>About</h3>
             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
                 <div>
-                    <div style="font-size: 1.2rem; font-weight: bold;">SIGINT-Deck</div>
+                    <div style="font-size: 1.2rem; font-weight: bold;">SIGINT-Pi</div>
                     <div style="color: var(--accent-green); font-weight: bold;" id="aboutVersion">--</div>
                 </div>
                 <div style="font-size: 0.8rem; color: var(--text-secondary);">
@@ -2746,96 +2749,19 @@
                 <tr><td style="padding: 3px 8px;">Version</td><td style="padding: 3px 8px; color: var(--text-primary);" id="aboutVersionDetail">--</td></tr>
                 <tr><td style="padding: 3px 8px;">Device</td><td style="padding: 3px 8px; color: var(--text-primary);" id="aboutDevice">--</td></tr>
                 <tr><td style="padding: 3px 8px;">License</td><td style="padding: 3px 8px; color: var(--text-primary);">GPL-3.0-or-later</td></tr>
-                <tr><td style="padding: 3px 8px;">Repository</td><td style="padding: 3px 8px;"><a href="https://github.com/naanprofit/sigint-deck" target="_blank" style="color:var(--accent-blue);">github.com/naanprofit/sigint-deck</a></td></tr>
+                <tr><td style="padding: 3px 8px;">Repository</td><td style="padding: 3px 8px;"><a href="https://github.com/naanprofit/sigint-pi" target="_blank" style="color:var(--accent-blue);">github.com/naanprofit/sigint-pi</a></td></tr>
             </table>
             <div id="aboutHardware" style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">Loading...</div>
             <details style="margin-bottom: 1rem;">
                 <summary style="cursor: pointer; color: var(--accent-red); font-weight: bold; font-size: 0.9rem;">⚠️ Legal Disclaimer</summary>
                 <div style="padding: 0.75rem; margin-top: 0.5rem; background: rgba(210,50,50,0.1); border-radius: 6px; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
                     <p><strong>RESEARCH &amp; ENTERTAINMENT USE ONLY.</strong> This software is NOT designed for any safety-critical purpose. Do not rely on it in life-threatening or emergency situations.</p>
-                    <p style="margin-top: 0.5rem;">By using this software you accept full responsibility for all consequences. See <a href="https://github.com/naanprofit/sigint-deck/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">LEGAL.md</a> for full terms.</p>
+                    <p style="margin-top: 0.5rem;">By using this software you accept full responsibility for all consequences. See <a href="https://github.com/naanprofit/sigint-pi/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">LEGAL.md</a> for full terms.</p>
                 </div>
             </details>
             <div style="text-align: center; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">
                 &copy; 2026 naanprofit &bull; GPL-3.0-or-later &bull;
-                <a href="https://github.com/naanprofit/sigint-deck/blob/main/CHANGELOG.md" target="_blank" style="color:var(--accent-blue);">Changelog</a>
-            </div>
-        </div>
-    </div>
-
-    <!-- Flipper Zero Tab -->
-    <div class="tab-content" id="tab-flipper">
-        <div class="sdr-panel">
-            <div class="sdr-header">
-                <div class="sdr-logo">🐬</div>
-                <div class="sdr-title">
-                    <h3>Flipper Zero</h3>
-                    <span class="sdr-subtitle">USB Serial Interface</span>
-                </div>
-                <button class="action-btn" onclick="refreshFlipperStatus()">🔄 Refresh</button>
-            </div>
-
-            <div id="flipperStatus" class="sdr-section" style="margin-top: 1rem;">
-                <div class="sdr-section-header"><h4>📡 Connection Status</h4></div>
-                <div id="flipperStatusContent" style="padding: 1rem;">
-                    <div class="status-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-                        <div class="status-item"><span class="status-label">Status:</span> <span id="flipperConnStatus" class="status-value">Checking...</span></div>
-                        <div class="status-item"><span class="status-label">Port:</span> <span id="flipperPort" class="status-value">--</span></div>
-                        <div class="status-item"><span class="status-label">Firmware:</span> <span id="flipperFw" class="status-value">--</span></div>
-                        <div class="status-item"><span class="status-label">Battery:</span> <span id="flipperBattery" class="status-value">--</span></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="sdr-section" style="margin-top: 1rem;">
-                <div class="sdr-section-header"><h4>📻 SubGHz (Read-Only)</h4></div>
-                <div style="padding: 1rem;">
-                    <p style="color:var(--text-secondary);font-size:0.85rem;">Capture SubGHz signals from the Flipper's radio. Transmission is disabled for safety.</p>
-                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-                        <button class="action-btn" onclick="flipperSubGhzCapture()">📡 Capture Signal</button>
-                    </div>
-                    <div id="flipperSubGhzResults" style="margin-top: 1rem; font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);"></div>
-                </div>
-            </div>
-
-            <div class="sdr-section" style="margin-top: 1rem;">
-                <div class="sdr-section-header"><h4>📋 Device Info</h4></div>
-                <div id="flipperDeviceInfo" style="padding: 1rem; font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">
-                    Connect a Flipper Zero via USB to view device details.
-                </div>
-            </div>
-
-            <div style="background: rgba(210, 153, 34, 0.15); border: 1px solid var(--accent-yellow); border-radius: 8px; padding: 1rem; margin-top: 1rem;">
-                <strong>⚠️ Note:</strong> RF transmission capabilities are intentionally disabled. Only passive reception and device management are available. Build with <code>--features flipper</code> for full serial support.
-            </div>
-        </div>
-    </div>
-
-    <!-- Intel Feed Tab -->
-    <div class="tab-content" id="tab-intel">
-        <div class="sdr-panel">
-            <div class="sdr-header">
-                <div class="sdr-logo">🧠</div>
-                <div class="sdr-title">
-                    <h3>Intel Feed</h3>
-                    <span class="sdr-subtitle">AI-generated scan summaries and detections</span>
-                </div>
-                <button class="action-btn" onclick="generateIntelSummary()">🔄 Generate Summary</button>
-                <button class="action-btn" onclick="announceIntelSummary()">🔊 TTS Announce</button>
-            </div>
-
-            <div class="sdr-section" style="margin-top: 1rem;">
-                <div class="sdr-section-header">
-                    <h4>📡 Live Feed</h4>
-                    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
-                        <input type="checkbox" id="ttsAlertToggle" onchange="toggleTtsAlerts(this.checked)"> TTS Alerts
-                    </label>
-                </div>
-                <div id="intelFeedList" style="padding: 1rem; max-height: 500px; overflow-y: auto;">
-                    <div style="color: var(--text-secondary); text-align: center; padding: 2rem;">
-                        Click "Generate Summary" to analyze current RF environment.
-                    </div>
-                </div>
+                <a href="https://github.com/naanprofit/sigint-pi/blob/main/CHANGELOG.md" target="_blank" style="color:var(--accent-blue);">Changelog</a>
             </div>
         </div>
     </div>
@@ -3765,15 +3691,12 @@
             // Render connected devices
             const devicesList = document.getElementById('sdrDevicesList');
             if (data.devices && data.devices.length > 0) {
-                devicesList.innerHTML = data.devices.map(d => {
-                    const icon = d.device_type === 'HackRf' ? '🔧' : d.device_type === 'LimeSdr' ? '💚' : '📻';
-                    const serial = d.serial ? ` (${d.serial})` : '';
-                    const name = typeof d === 'string' ? d : (d.name || d.device_type || 'Unknown');
-                    return `<div class="sdr-device-item">
-                        <span class="device-icon">${icon}</span>
-                        <span>${name}${serial} [#${d.index ?? 0}]</span>
-                    </div>`;
-                }).join('');
+                devicesList.innerHTML = data.devices.map(d => `
+                    <div class="sdr-device-item">
+                        <span class="device-icon">📻</span>
+                        <span>${d}</span>
+                    </div>
+                `).join('');
             } else {
                 devicesList.innerHTML = '<div class="sdr-info-text">No SDR devices connected</div>';
             }
@@ -4292,6 +4215,7 @@
                 document.getElementById('tscmRunning').style.color = 'var(--accent-green)';
                 btn.textContent = continuous ? '🔄 Sweeping...' : '⏳ Sweeping...';
                 
+                window._tscmScrolledToThreats = false;
                 pollTscmStatus();
             } catch (e) {
                 alert('Failed to start sweep: ' + e.message);
@@ -4354,7 +4278,18 @@
                     }
                 }
                 
-                renderTscmThreats(data.threats || []);
+                const threats = data.threats || [];
+                renderTscmThreats(threats);
+                
+                // Update TSCM tab badge
+                const tscmBadge = document.getElementById('tscmBadge');
+                if (tscmBadge) tscmBadge.textContent = threats.length > 0 ? threats.length : (data.running ? '...' : '--');
+                
+                // Auto-scroll to threats on first detection
+                if (threats.length > 0 && !window._tscmScrolledToThreats) {
+                    window._tscmScrolledToThreats = true;
+                    document.getElementById('tscmThreatList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
             } catch (e) {
                 console.error('TSCM status failed:', e);
             }
@@ -4627,6 +4562,7 @@
                 const data = await safeFetchJson('/api/sdr/devices/all');
                 sdrDevicesCache = data.detected_devices || [];
 
+                // Update DF status
                 const dfStatus = document.getElementById('sdrDfStatus');
                 if (data.has_direction_finding) {
                     dfStatus.style.display = 'block';
@@ -4642,6 +4578,7 @@
                         'Single device - add more SDRs for direction finding. <span style="color:var(--accent-yellow);">Min 3 receivers recommended for triangulation.</span>';
                 }
 
+                // Render device list
                 if (sdrDevicesCache.length === 0) {
                     container.innerHTML = '<div class="empty-state">No SDR devices detected. Plug in an RTL-SDR, HackRF, or other supported receiver.</div>';
                 } else {
@@ -4661,10 +4598,12 @@
                     `).join('');
                 }
 
+                // Populate device dropdown for antenna assignment
                 const devSelect = document.getElementById('antDevice');
                 devSelect.innerHTML = '<option value="">Unassigned</option>' +
                     sdrDevicesCache.map((d, i) => `<option value="${i}">${d.name}</option>`).join('');
 
+                // Load alternatives
                 if (data.cheaper_alternatives) {
                     document.getElementById('sdrAlternatives').innerHTML = data.cheaper_alternatives.map(a => `
                         <div style="padding:6px 8px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;">
@@ -4677,6 +4616,7 @@
                     `).join('');
                 }
 
+                // Load antenna config
                 await loadAntennaConfig();
             } catch (e) {
                 container.innerHTML = `<div class="empty-state" style="color:var(--accent-red);">Error: ${e.message}</div>`;
@@ -4721,14 +4661,18 @@
 
             ctx.clearRect(0, 0, w, h);
 
+            // Grid
             ctx.strokeStyle = 'rgba(100,100,100,0.2)';
             ctx.lineWidth = 0.5;
             for (let r = 30; r < cx; r += 30) {
-                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
             }
             ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
 
+            // Center point (protected area)
             ctx.fillStyle = '#44aaff';
             ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(68,170,255,0.15)';
@@ -4742,34 +4686,50 @@
                 return;
             }
 
+            // Scale: find max extent
             let maxDist = 1;
-            antennasCache.forEach(a => { maxDist = Math.max(maxDist, Math.abs(a.x_meters), Math.abs(a.y_meters)); });
+            antennasCache.forEach(a => {
+                maxDist = Math.max(maxDist, Math.abs(a.x_meters), Math.abs(a.y_meters));
+            });
             const scale = (cx - 20) / (maxDist * 1.2);
 
+            // Draw antennas
             antennasCache.forEach((a, i) => {
                 const px = cx + a.x_meters * scale;
-                const py = cy - a.y_meters * scale;
+                const py = cy - a.y_meters * scale; // Y is north = up
                 const colors = ['#ff4444', '#44ff44', '#ffaa00', '#ff44ff', '#44ffff', '#ffffff'];
                 const col = colors[i % colors.length];
 
+                // Bearing line
                 if (a.antenna_type !== 'omnidirectional') {
                     const bRad = (a.bearing_degrees - 90) * Math.PI / 180;
-                    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
-                    ctx.beginPath(); ctx.moveTo(px, py);
+                    ctx.strokeStyle = col;
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([4, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
                     ctx.lineTo(px + Math.cos(bRad) * 40, py + Math.sin(bRad) * 40);
-                    ctx.stroke(); ctx.setLineDash([]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
                 }
 
+                // Antenna dot
                 ctx.fillStyle = col;
                 ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
                 ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.stroke();
 
-                ctx.fillStyle = col; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+                // Label
+                ctx.fillStyle = col;
+                ctx.font = 'bold 9px sans-serif';
+                ctx.textAlign = 'center';
                 ctx.fillText(a.label, px, py - 10);
             });
 
-            ctx.fillStyle = 'rgba(150,150,150,0.6)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+            // Distance legend
+            ctx.fillStyle = 'rgba(150,150,150,0.6)';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'right';
             ctx.fillText(`${maxDist.toFixed(1)}m`, w - 5, h - 5);
         }
 
@@ -4810,6 +4770,7 @@
         }
 
         async function applyPreset(preset) {
+            // Clear existing antennas
             for (const a of antennasCache) {
                 await fetch(`/api/sdr/antenna/${a.id}`, { method: 'DELETE' });
             }
@@ -4821,7 +4782,7 @@
                 });
             };
 
-            const R = 10;
+            const R = 10; // default radius in meters from center
 
             if (preset === '4sector') {
                 await addAnt('North RTL-SDR', 0, R, 3, 0, 'directional', 6);
@@ -4830,12 +4791,14 @@
                 await addAnt('West RTL-SDR', -R, 0, 3, 270, 'directional', 6);
                 showNotification('4-Sector preset applied (4 antennas)', 'success');
             } else if (preset === '4sector_dual') {
+                // Per sector: RTL-SDR (LPDA, EMI watch) + HackRF (panel/yagi, controller capture)
                 for (const [dir, bng, x, y] of [['North',0,0,R],['East',90,R,0],['South',180,0,-R],['West',270,-R,0]]) {
                     await addAnt(`${dir} RTL-SDR (EMI/LPDA)`, x, y, 3, bng, 'directional', 6);
                     await addAnt(`${dir} HackRF (Controller)`, x*0.95, y*0.95, 3.5, bng, 'patch', 9);
                 }
-                showNotification('4-Sector Dual preset applied (8 antennas)', 'success');
+                showNotification('4-Sector Dual preset applied (8 antennas: 4x RTL EMI + 4x HackRF controller)', 'success');
             } else if (preset === 'kraken_center') {
+                // 5-element uniform circular array, ~0.5m radius
                 const kr = 0.5;
                 for (let i = 0; i < 5; i++) {
                     const ang = i * 72;
@@ -4844,6 +4807,7 @@
                 }
                 showNotification('KrakenSDR 5-element DF array preset applied', 'success');
             } else if (preset === 'full_8dev') {
+                // 4 sector pairs + central Kraken
                 for (const [dir, bng, x, y] of [['North',0,0,R],['East',90,R,0],['South',180,0,-R],['West',270,-R,0]]) {
                     await addAnt(`${dir} RTL-SDR (EMI/LPDA)`, x, y, 3, bng, 'directional', 6);
                     await addAnt(`${dir} HackRF (Controller)`, x*0.95, y*0.95, 3.5, bng, 'patch', 9);
@@ -4956,7 +4920,455 @@
                 renderWifiDevices();
                 renderBleDevices();
             }, 60000);
+
+            // Browser TTS Alert System
+            initBrowserTts();
         });
+
+        // ============================================
+        // Browser TTS - speaks alerts through the browser
+        // ============================================
+        let browserTtsEnabled = false;
+        let lastSpokenAlertTime = 0;
+        const spokenAlertCache = new Set();
+
+        function initBrowserTts() {
+            // Check if Web Speech API is available
+            if (!('speechSynthesis' in window)) {
+                console.warn('Web Speech API not available');
+                return;
+            }
+            // Poll for TTS alerts from server
+            setInterval(pollTtsAlerts, 3000);
+            // Also check local alerts for new high-priority ones
+            setInterval(checkLocalAlerts, 5000);
+        }
+
+        function toggleBrowserTts() {
+            browserTtsEnabled = !browserTtsEnabled;
+            const btn = document.getElementById('browserTtsToggle');
+            if (btn) {
+                btn.textContent = browserTtsEnabled ? '🔊 TTS ON' : '🔇 TTS OFF';
+                btn.classList.toggle('active', browserTtsEnabled);
+            }
+            // Also tell server
+            fetch('/api/alerts/tts/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enabled: browserTtsEnabled})
+            }).catch(() => {});
+            if (browserTtsEnabled) {
+                browserSpeak('Text to speech enabled');
+            }
+        }
+
+        function browserSpeak(text) {
+            if (!browserTtsEnabled || !('speechSynthesis' in window)) return;
+            // Try server-generated WAV first (higher quality Piper voice)
+            fetch('/api/tts/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text: text})
+            }).then(r => {
+                if (r.ok) return r.blob();
+                throw new Error('no wav');
+            }).then(blob => {
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.play().catch(() => {});
+                audio.onended = () => URL.revokeObjectURL(url);
+            }).catch(() => {
+                // Fallback: browser Web Speech API
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.1;
+                utterance.pitch = 0.9;
+                utterance.volume = 0.8;
+                speechSynthesis.speak(utterance);
+            });
+        }
+
+        async function pollTtsAlerts() {
+            if (!browserTtsEnabled) return;
+            try {
+                const r = await fetch('/api/alerts/tts/pending');
+                if (!r.ok) return;
+                const data = await r.json();
+                if (data.alerts && data.alerts.length > 0) {
+                    for (const alert of data.alerts) {
+                        const key = alert.id || alert.message;
+                        if (!spokenAlertCache.has(key)) {
+                            spokenAlertCache.add(key);
+                            browserSpeak(alert.message);
+                            // Keep cache bounded
+                            if (spokenAlertCache.size > 200) {
+                                const first = spokenAlertCache.values().next().value;
+                                spokenAlertCache.delete(first);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        function checkLocalAlerts() {
+            if (!browserTtsEnabled || !state.alerts) return;
+            const now = Date.now() / 1000;
+            for (const alert of state.alerts) {
+                if (!alert.timestamp || alert.timestamp < lastSpokenAlertTime) continue;
+                const priority = (alert.priority || '').toLowerCase();
+                if (priority === 'critical' || priority === 'high') {
+                    const key = `${alert.timestamp}_${alert.message}`;
+                    if (!spokenAlertCache.has(key)) {
+                        spokenAlertCache.add(key);
+                        browserSpeak(`${priority} alert: ${alert.message}`);
+                    }
+                }
+            }
+            lastSpokenAlertTime = now;
+        }
+
+        // Play alert sound (tone) through browser
+        function playAlertTone(type) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                if (type === 'drone') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(660, ctx.currentTime);
+                    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+                    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.4);
+                } else if (type === 'tracker') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, ctx.currentTime);
+                    osc.frequency.setValueAtTime(550, ctx.currentTime + 0.15);
+                    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.3);
+                } else {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523, ctx.currentTime);
+                }
+                osc.start();
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+                osc.stop(ctx.currentTime + 0.6);
+            } catch(e) {}
+        }
+
+        // ============================================
+        // SIEM
+        // ============================================
+        let siemOffset = 0;
+        const siemLimit = 50;
+
+        async function loadSiemStats() {
+            try {
+                const r = await fetch('/api/siem/stats');
+                const data = await r.json();
+                document.getElementById('siemTotalEvents').textContent = (data.total_events || 0).toLocaleString();
+                document.getElementById('siemDbSize').textContent = (data.db_size_mb || 0).toFixed(1) + ' MB';
+                document.getElementById('siemBudgetPct').textContent = (data.budget_used_pct || 0).toFixed(1) + '%';
+
+                // Severity bars
+                const sevEl = document.getElementById('siemSeverityBars');
+                if (data.severity_counts && data.severity_counts.length > 0) {
+                    const maxC = Math.max(...data.severity_counts.map(s => s.count));
+                    const colors = {critical:'#ff4444', high:'#ff8800', medium:'#ffcc00', low:'#44aaff', info:'#888'};
+                    sevEl.innerHTML = data.severity_counts.map(s => {
+                        const pct = maxC > 0 ? (s.count / maxC * 100) : 0;
+                        const col = colors[s.severity] || '#666';
+                        return `<div style="display:flex;align-items:center;gap:0.5rem;margin:2px 0;">
+                            <span style="width:60px;font-size:0.75rem;color:${col};text-transform:uppercase;">${s.severity}</span>
+                            <div style="flex:1;height:12px;background:var(--bg-primary);border-radius:3px;overflow:hidden;">
+                                <div style="width:${pct}%;height:100%;background:${col};"></div>
+                            </div>
+                            <span style="font-size:0.75rem;color:var(--text-secondary);width:50px;text-align:right;">${s.count}</span>
+                        </div>`;
+                    }).join('');
+                }
+
+                // Populate category filter
+                const catSel = document.getElementById('siemCatFilter');
+                if (data.category_counts) {
+                    const currentVal = catSel.value;
+                    catSel.innerHTML = '<option value="">All Categories</option>' +
+                        data.category_counts.map(c => `<option value="${c.category}">${c.category} (${c.count})</option>`).join('');
+                    catSel.value = currentVal;
+                }
+            } catch(e) { console.error('SIEM stats error:', e); }
+        }
+
+        let siemWatchInterval = null;
+        let siemActivePreset = null;
+
+        function siemTimePreset(preset) {
+            const now = new Date();
+            let since = null;
+            if (preset === '1h') since = new Date(now - 3600 * 1000);
+            else if (preset === '24h') since = new Date(now - 24 * 3600 * 1000);
+            else if (preset === '7d') since = new Date(now - 7 * 24 * 3600 * 1000);
+            else if (preset === '30d') since = new Date(now - 30 * 24 * 3600 * 1000);
+
+            document.getElementById('siemUntilFilter').value = '';
+            if (since) {
+                const pad = (n) => String(n).padStart(2, '0');
+                document.getElementById('siemSinceFilter').value =
+                    `${since.getFullYear()}-${pad(since.getMonth()+1)}-${pad(since.getDate())}T${pad(since.getHours())}:${pad(since.getMinutes())}`;
+            } else {
+                document.getElementById('siemSinceFilter').value = '';
+            }
+
+            siemActivePreset = preset;
+            ['1h','24h','7d','30d','all'].forEach(p => {
+                const btn = document.getElementById('siemPreset' + p.charAt(0).toUpperCase() + p.slice(1));
+                if (btn) btn.style.background = p === preset ? 'var(--accent-blue)' : '';
+            });
+            // Fix capitalization for button IDs
+            document.querySelectorAll('[id^="siemPreset"]').forEach(b => b.style.background = '');
+            const activeBtn = document.getElementById('siemPreset' + ({
+                '1h':'1h','24h':'24h','7d':'7d','30d':'30d','all':'All'
+            }[preset] || ''));
+            if (activeBtn) activeBtn.style.background = 'var(--accent-blue)';
+
+            searchSiem();
+        }
+
+        function clearSiemPresetHighlight() {
+            siemActivePreset = null;
+            document.querySelectorAll('[id^="siemPreset"]').forEach(b => b.style.background = '');
+        }
+
+        function toggleSiemWatch() {
+            const btn = document.getElementById('siemWatchBtn');
+            const status = document.getElementById('siemWatchStatus');
+            if (siemWatchInterval) {
+                clearInterval(siemWatchInterval);
+                siemWatchInterval = null;
+                btn.textContent = '👁️ Watch';
+                btn.style.background = '';
+                status.textContent = '';
+            } else {
+                // If a time preset is active, keep refreshing with a rolling window
+                siemWatchInterval = setInterval(() => {
+                    if (siemActivePreset && siemActivePreset !== 'all') {
+                        siemTimePreset(siemActivePreset);
+                    } else {
+                        loadSiemEvents();
+                    }
+                    status.textContent = 'Updated ' + new Date().toLocaleTimeString();
+                }, 5000);
+                btn.textContent = '⏹️ Stop';
+                btn.style.background = 'var(--accent-red)';
+                status.textContent = 'Watching (5s refresh)...';
+                // Immediately refresh
+                if (siemActivePreset && siemActivePreset !== 'all') {
+                    siemTimePreset(siemActivePreset);
+                } else {
+                    loadSiemEvents();
+                }
+            }
+        }
+
+        async function searchSiem() {
+            siemOffset = 0;
+            await loadSiemEvents();
+        }
+
+        async function loadSiemEvents() {
+            const q = document.getElementById('siemSearchInput').value.trim();
+            const sev = document.getElementById('siemSevFilter').value;
+            const cat = document.getElementById('siemCatFilter').value;
+            const since = document.getElementById('siemSinceFilter').value;
+            const until = document.getElementById('siemUntilFilter').value;
+
+            let url;
+            if (q) {
+                url = `/api/siem/search?q=${encodeURIComponent(q)}&limit=${siemLimit}&offset=${siemOffset}`;
+            } else {
+                url = `/api/siem/events?limit=${siemLimit}&offset=${siemOffset}`;
+            }
+            if (sev) url += `&severity=${sev}`;
+            if (cat) url += `&category=${cat}`;
+            if (since) url += `&since=${encodeURIComponent(since)}`;
+            if (until) url += `&until=${encodeURIComponent(until)}`;
+
+            try {
+                const r = await fetch(url);
+                const data = await r.json();
+                const events = data.events || [];
+                document.getElementById('siemResultCount').textContent = `Showing ${events.length} events (offset ${siemOffset})`;
+                document.getElementById('siemPrevBtn').disabled = siemOffset === 0;
+                document.getElementById('siemNextBtn').disabled = events.length < siemLimit;
+
+                const el = document.getElementById('siemEventList');
+                if (events.length === 0) {
+                    el.innerHTML = '<div class="empty-state">No events found</div>';
+                    return;
+                }
+                const sevColors = {critical:'#ff4444', high:'#ff8800', medium:'#ffcc00', low:'#44aaff', info:'#888'};
+                el.innerHTML = events.map(ev => {
+                    const col = sevColors[ev.severity] || '#666';
+                    const ts = ev.timestamp ? new Date(ev.timestamp + 'Z').toLocaleString() : '';
+                    const mac = ev.device_mac ? `<code style="font-size:0.75rem;">${ev.device_mac}</code>` : '';
+                    return `<div style="padding:6px 8px;border-bottom:1px solid var(--border-color);display:flex;gap:0.5rem;align-items:flex-start;">
+                        <span style="color:${col};font-weight:bold;font-size:0.7rem;text-transform:uppercase;min-width:50px;">${ev.severity}</span>
+                        <span style="color:var(--text-secondary);font-size:0.7rem;min-width:130px;">${ts}</span>
+                        <span style="color:var(--accent-blue);font-size:0.7rem;min-width:80px;">${ev.source}</span>
+                        <span style="color:var(--text-secondary);font-size:0.7rem;min-width:80px;">${ev.category}</span>
+                        <div style="flex:1;">
+                            <div style="color:var(--text-primary);font-size:0.8rem;">${ev.message}</div>
+                            ${mac ? '<div style="margin-top:2px;">' + mac + '</div>' : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch(e) { console.error('SIEM load error:', e); }
+        }
+
+        function siemPaginate(dir) {
+            siemOffset = Math.max(0, siemOffset + dir * siemLimit);
+            loadSiemEvents();
+        }
+
+        async function exportSiem() {
+            const sev = document.getElementById('siemSevFilter').value;
+            const cat = document.getElementById('siemCatFilter').value;
+            const since = document.getElementById('siemSinceFilter').value;
+            let url = '/api/siem/export?limit=10000';
+            if (sev) url += `&severity=${sev}`;
+            if (cat) url += `&category=${cat}`;
+            if (since) url += `&since=${encodeURIComponent(since)}`;
+            window.open(url, '_blank');
+        }
+
+        async function saveSiemForward() {
+            const ftype = document.getElementById('siemForwardType').value;
+            const endpoint = document.getElementById('siemForwardEndpoint').value;
+            try {
+                const r = await fetch('/api/siem/forward/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: !!endpoint, forward_type: ftype, endpoint: endpoint })
+                });
+                const data = await r.json();
+                document.getElementById('siemForwardStatus').textContent = data.saved ? '✅ Saved' : '❌ Error';
+            } catch(e) { document.getElementById('siemForwardStatus').textContent = '❌ Failed'; }
+        }
+
+        async function loadSiemForwardConfig() {
+            try {
+                const r = await fetch('/api/siem/forward/config');
+                const data = await r.json();
+                document.getElementById('siemForwardType').value = data.forward_type || 'syslog';
+                document.getElementById('siemForwardEndpoint').value = data.endpoint || '';
+            } catch(e) {}
+        }
+
+        // ============================================
+        // Device Silencing
+        // ============================================
+        async function loadSilencedDevices() {
+            try {
+                const r = await fetch('/api/devices/silenced');
+                const data = await r.json();
+                const el = document.getElementById('silencedDevicesList');
+                if (!data.silenced_devices || data.silenced_devices.length === 0) {
+                    el.innerHTML = '<span style="color: var(--text-secondary);">No silenced devices</span>';
+                    return;
+                }
+                el.innerHTML = data.silenced_devices.map(mac =>
+                    `<div style="display:flex;align-items:center;gap:0.5rem;padding:3px 0;">
+                        <code style="font-size:0.85rem;">${mac}</code>
+                        <button class="action-btn" style="padding:2px 8px;font-size:0.75rem;" onclick="unsilenceDevice('${mac}')">🔔 Unsilence</button>
+                    </div>`
+                ).join('');
+            } catch(e) {
+                document.getElementById('silencedDevicesList').textContent = 'Error loading';
+            }
+        }
+
+        async function silenceDevice(mac) {
+            await fetch(`/api/devices/${encodeURIComponent(mac)}/silence`, { method: 'POST' });
+            loadSilencedDevices();
+        }
+
+        async function unsilenceDevice(mac) {
+            await fetch(`/api/devices/${encodeURIComponent(mac)}/unsilence`, { method: 'POST' });
+            loadSilencedDevices();
+        }
+
+        // ============================================
+        // Morse Code Decoder
+        // ============================================
+        let morsePollInterval = null;
+
+        function selectMorsePreset(sel) {
+            if (sel.value) document.getElementById('morseFreqInput').value = sel.value;
+        }
+
+        async function startMorseDecoder() {
+            const freq = parseInt(document.getElementById('morseFreqInput').value);
+            if (!freq || freq < 100000) { alert('Enter a valid frequency in Hz'); return; }
+            const wpm = parseInt(document.getElementById('morseWpmInput').value) || 20;
+            const tone = parseInt(document.getElementById('morseToneInput').value) || 700;
+            try {
+                const r = await fetch('/api/sdr/morse/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ frequency_hz: freq, wpm: wpm, tone_hz: tone })
+                });
+                const data = await r.json();
+                if (data.error) { alert(data.error); return; }
+                document.getElementById('morseStatus').textContent = 'Decoding...';
+                document.getElementById('morseStatus').style.color = 'var(--accent-green)';
+                document.getElementById('morseOutput').textContent = '';
+                if (morsePollInterval) clearInterval(morsePollInterval);
+                morsePollInterval = setInterval(pollMorseStatus, 1000);
+            } catch(e) { alert('Failed: ' + e.message); }
+        }
+
+        async function startMorseWithAudio() {
+            const freq = parseInt(document.getElementById('morseFreqInput').value);
+            if (!freq || freq < 100000) { alert('Enter a valid frequency in Hz'); return; }
+            // Start decoder
+            await startMorseDecoder();
+            // Also tune radio in CW mode for audio
+            try {
+                await fetch('/api/sdr/radio/tune', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ frequency_hz: freq, modulation: 'cw', squelch: -60 })
+                });
+                startAudioStream(12000);
+            } catch(e) { console.error('Audio tune failed:', e); }
+        }
+
+        async function stopMorseDecoder() {
+            if (morsePollInterval) { clearInterval(morsePollInterval); morsePollInterval = null; }
+            await fetch('/api/sdr/morse/stop', { method: 'POST' }).catch(() => {});
+            stopAudioStream();
+            await fetch('/api/sdr/radio/stop', { method: 'POST' }).catch(() => {});
+            document.getElementById('morseStatus').textContent = 'Stopped';
+            document.getElementById('morseStatus').style.color = 'var(--text-secondary)';
+        }
+
+        async function pollMorseStatus() {
+            try {
+                const r = await fetch('/api/sdr/morse/status');
+                const data = await r.json();
+                if (!data.running) {
+                    document.getElementById('morseStatus').textContent = 'Stopped';
+                    document.getElementById('morseStatus').style.color = 'var(--text-secondary)';
+                    if (morsePollInterval) { clearInterval(morsePollInterval); morsePollInterval = null; }
+                    return;
+                }
+                const el = document.getElementById('morseOutput');
+                if (data.decoded && data.decoded.length > 0) {
+                    el.textContent = data.decoded.map(d => d.text).join('\n');
+                    el.scrollTop = el.scrollHeight;
+                }
+            } catch(e) {}
+        }
 
         // Settings functionality
         async function initSettings() {
@@ -4973,6 +5385,19 @@
             } catch (e) {
                 console.log('Settings not available');
             }
+            
+            // Sync pcap toggle with actual capture state
+            try {
+                const r = await fetch('/api/pcap/status');
+                if (r.ok) {
+                    const st = await r.json();
+                    const btn = document.getElementById('pcapToggle');
+                    if (btn && st.capturing) {
+                        btn.classList.add('active');
+                        btn.textContent = 'ON';
+                    }
+                }
+            } catch (e) {}
             
             // Check LLM status
             checkLlmStatus();
@@ -4997,7 +5422,11 @@
                 const start = !btn.classList.contains('active');
                 
                 const endpoint = start ? '/api/pcap/start' : '/api/pcap/stop';
-                const response = await fetch(endpoint, {method: 'POST'});
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -5141,313 +5570,6 @@
             } catch (e) { /* ignore */ }
         }
         loadSavedSettings();
-
-        // ============================================
-        // SIEM - Security Event Log
-        // ============================================
-        let siemOffset = 0;
-        const siemLimit = 50;
-
-        async function loadSiemStats() {
-            try {
-                const r = await fetch('/api/siem/stats');
-                const data = await r.json();
-                document.getElementById('siemTotalEvents').textContent = (data.total_events || 0).toLocaleString();
-                document.getElementById('siemDbSize').textContent = (data.db_size_mb || 0).toFixed(1) + ' MB';
-                document.getElementById('siemBudgetPct').textContent = (data.budget_used_pct || 0).toFixed(1) + '%';
-
-                // Severity bars
-                const sevEl = document.getElementById('siemSeverityBars');
-                if (data.severity_counts && data.severity_counts.length > 0) {
-                    const maxC = Math.max(...data.severity_counts.map(s => s.count));
-                    const colors = {critical:'#ff4444', high:'#ff8800', medium:'#ffcc00', low:'#44aaff', info:'#888'};
-                    sevEl.innerHTML = data.severity_counts.map(s => {
-                        const pct = maxC > 0 ? (s.count / maxC * 100) : 0;
-                        const col = colors[s.severity] || '#666';
-                        return `<div style="display:flex;align-items:center;gap:0.5rem;margin:2px 0;">
-                            <span style="width:60px;font-size:0.75rem;color:${col};text-transform:uppercase;">${s.severity}</span>
-                            <div style="flex:1;height:12px;background:var(--bg-primary);border-radius:3px;overflow:hidden;">
-                                <div style="width:${pct}%;height:100%;background:${col};"></div>
-                            </div>
-                            <span style="font-size:0.75rem;color:var(--text-secondary);width:50px;text-align:right;">${s.count}</span>
-                        </div>`;
-                    }).join('');
-                }
-
-                // Populate category filter
-                const catSel = document.getElementById('siemCatFilter');
-                if (data.category_counts) {
-                    const currentVal = catSel.value;
-                    catSel.innerHTML = '<option value="">All Categories</option>' +
-                        data.category_counts.map(c => `<option value="${c.category}">${c.category} (${c.count})</option>`).join('');
-                    catSel.value = currentVal;
-                }
-            } catch(e) { console.error('SIEM stats error:', e); }
-        }
-
-        let siemWatchInterval = null;
-        let siemActivePreset = null;
-
-        function siemTimePreset(preset) {
-            const now = new Date();
-            let since = null;
-            if (preset === '1h') since = new Date(now - 3600 * 1000);
-            else if (preset === '24h') since = new Date(now - 24 * 3600 * 1000);
-            else if (preset === '7d') since = new Date(now - 7 * 24 * 3600 * 1000);
-            else if (preset === '30d') since = new Date(now - 30 * 24 * 3600 * 1000);
-
-            document.getElementById('siemUntilFilter').value = '';
-            if (since) {
-                const pad = (n) => String(n).padStart(2, '0');
-                document.getElementById('siemSinceFilter').value =
-                    `${since.getFullYear()}-${pad(since.getMonth()+1)}-${pad(since.getDate())}T${pad(since.getHours())}:${pad(since.getMinutes())}`;
-            } else {
-                document.getElementById('siemSinceFilter').value = '';
-            }
-
-            siemActivePreset = preset;
-            document.querySelectorAll('[id^="siemPreset"]').forEach(b => b.style.background = '');
-            const activeBtn = document.getElementById('siemPreset' + ({
-                '1h':'1h','24h':'24h','7d':'7d','30d':'30d','all':'All'
-            }[preset] || ''));
-            if (activeBtn) activeBtn.style.background = 'var(--accent-blue)';
-
-            searchSiem();
-        }
-
-        function clearSiemPresetHighlight() {
-            siemActivePreset = null;
-            document.querySelectorAll('[id^="siemPreset"]').forEach(b => b.style.background = '');
-        }
-
-        function toggleSiemWatch() {
-            const btn = document.getElementById('siemWatchBtn');
-            const status = document.getElementById('siemWatchStatus');
-            if (siemWatchInterval) {
-                clearInterval(siemWatchInterval);
-                siemWatchInterval = null;
-                btn.textContent = '👁️ Watch';
-                btn.style.background = '';
-                status.textContent = '';
-            } else {
-                siemWatchInterval = setInterval(() => {
-                    if (siemActivePreset && siemActivePreset !== 'all') {
-                        siemTimePreset(siemActivePreset);
-                    } else {
-                        loadSiemEvents();
-                    }
-                    status.textContent = 'Updated ' + new Date().toLocaleTimeString();
-                }, 5000);
-                btn.textContent = '⏹️ Stop';
-                btn.style.background = 'var(--accent-red)';
-                status.textContent = 'Watching (5s refresh)...';
-                if (siemActivePreset && siemActivePreset !== 'all') {
-                    siemTimePreset(siemActivePreset);
-                } else {
-                    loadSiemEvents();
-                }
-            }
-        }
-
-        async function searchSiem() {
-            siemOffset = 0;
-            await loadSiemEvents();
-        }
-
-        async function loadSiemEvents() {
-            const q = document.getElementById('siemSearchInput').value.trim();
-            const sev = document.getElementById('siemSevFilter').value;
-            const cat = document.getElementById('siemCatFilter').value;
-            const since = document.getElementById('siemSinceFilter').value;
-            const until = document.getElementById('siemUntilFilter').value;
-
-            let url;
-            if (q) {
-                url = `/api/siem/search?q=${encodeURIComponent(q)}&limit=${siemLimit}&offset=${siemOffset}`;
-            } else {
-                url = `/api/siem/events?limit=${siemLimit}&offset=${siemOffset}`;
-            }
-            if (sev) url += `&severity=${sev}`;
-            if (cat) url += `&category=${cat}`;
-            if (since) url += `&since=${encodeURIComponent(since)}`;
-            if (until) url += `&until=${encodeURIComponent(until)}`;
-
-            try {
-                const r = await fetch(url);
-                const data = await r.json();
-                const events = data.events || [];
-                document.getElementById('siemResultCount').textContent = `Showing ${events.length} events (offset ${siemOffset})`;
-                document.getElementById('siemPrevBtn').disabled = siemOffset === 0;
-                document.getElementById('siemNextBtn').disabled = events.length < siemLimit;
-
-                const el = document.getElementById('siemEventList');
-                if (events.length === 0) {
-                    el.innerHTML = '<div class="empty-state">No events found</div>';
-                    return;
-                }
-                const sevColors = {critical:'#ff4444', high:'#ff8800', medium:'#ffcc00', low:'#44aaff', info:'#888'};
-                el.innerHTML = events.map(ev => {
-                    const col = sevColors[ev.severity] || '#666';
-                    const ts = ev.timestamp ? new Date(ev.timestamp + 'Z').toLocaleString() : '';
-                    const mac = ev.device_mac ? `<code style="font-size:0.75rem;">${ev.device_mac}</code>` : '';
-                    return `<div style="padding:6px 8px;border-bottom:1px solid var(--border-color);display:flex;gap:0.5rem;align-items:flex-start;">
-                        <span style="color:${col};font-weight:bold;font-size:0.7rem;text-transform:uppercase;min-width:50px;">${ev.severity}</span>
-                        <span style="color:var(--text-secondary);font-size:0.7rem;min-width:130px;">${ts}</span>
-                        <span style="color:var(--accent-blue);font-size:0.7rem;min-width:80px;">${ev.source}</span>
-                        <span style="color:var(--text-secondary);font-size:0.7rem;min-width:80px;">${ev.category}</span>
-                        <div style="flex:1;">
-                            <div style="color:var(--text-primary);font-size:0.8rem;">${ev.message}</div>
-                            ${mac ? '<div style="margin-top:2px;">' + mac + '</div>' : ''}
-                        </div>
-                    </div>`;
-                }).join('');
-            } catch(e) { console.error('SIEM load error:', e); }
-        }
-
-        function siemPaginate(dir) {
-            siemOffset = Math.max(0, siemOffset + dir * siemLimit);
-            loadSiemEvents();
-        }
-
-        async function exportSiem() {
-            const sev = document.getElementById('siemSevFilter').value;
-            const cat = document.getElementById('siemCatFilter').value;
-            const since = document.getElementById('siemSinceFilter').value;
-            let url = '/api/siem/export?limit=10000';
-            if (sev) url += `&severity=${sev}`;
-            if (cat) url += `&category=${cat}`;
-            if (since) url += `&since=${encodeURIComponent(since)}`;
-            window.open(url, '_blank');
-        }
-
-        async function saveSiemForward() {
-            const ftype = document.getElementById('siemForwardType').value;
-            const endpoint = document.getElementById('siemForwardEndpoint').value;
-            try {
-                const r = await fetch('/api/siem/forward/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ enabled: !!endpoint, forward_type: ftype, endpoint: endpoint })
-                });
-                const data = await r.json();
-                document.getElementById('siemForwardStatus').textContent = data.saved ? '✅ Saved' : '❌ Error';
-            } catch(e) { document.getElementById('siemForwardStatus').textContent = '❌ Failed'; }
-        }
-
-        async function loadSiemForwardConfig() {
-            try {
-                const r = await fetch('/api/siem/forward/config');
-                const data = await r.json();
-                document.getElementById('siemForwardType').value = data.forward_type || 'syslog';
-                document.getElementById('siemForwardEndpoint').value = data.endpoint || '';
-            } catch(e) {}
-        }
-
-        // ============================================
-        // Device Alert Silencing
-        // ============================================
-        async function loadSilencedDevices() {
-            try {
-                const r = await fetch('/api/devices/silenced');
-                const data = await r.json();
-                const el = document.getElementById('silencedDevicesList');
-                if (!data.silenced_devices || data.silenced_devices.length === 0) {
-                    el.innerHTML = '<span style="color: var(--text-secondary);">No silenced devices</span>';
-                    return;
-                }
-                el.innerHTML = data.silenced_devices.map(mac =>
-                    `<div style="display:flex;align-items:center;gap:0.5rem;padding:3px 0;">
-                        <code style="font-size:0.85rem;">${mac}</code>
-                        <button class="action-btn" style="padding:2px 8px;font-size:0.75rem;" onclick="unsilenceDevice('${mac}')">🔔 Unsilence</button>
-                    </div>`
-                ).join('');
-            } catch(e) {
-                document.getElementById('silencedDevicesList').textContent = 'Error loading';
-            }
-        }
-
-        async function silenceDevice(mac) {
-            await fetch(`/api/devices/${encodeURIComponent(mac)}/silence`, { method: 'POST' });
-            loadSilencedDevices();
-        }
-
-        async function unsilenceDevice(mac) {
-            await fetch(`/api/devices/${encodeURIComponent(mac)}/unsilence`, { method: 'POST' });
-            loadSilencedDevices();
-        }
-
-        // ============================================
-        // Morse Code Decoder
-        // ============================================
-        let morsePollInterval = null;
-
-        function selectMorsePreset(sel) {
-            if (sel.value) document.getElementById('morseFreqInput').value = sel.value;
-        }
-
-        async function startMorseDecoder() {
-            const freq = parseInt(document.getElementById('morseFreqInput').value);
-            if (!freq || freq < 100000) { alert('Enter a valid frequency in Hz'); return; }
-            const wpm = parseInt(document.getElementById('morseWpmInput').value) || 20;
-            const tone = parseInt(document.getElementById('morseToneInput').value) || 700;
-            try {
-                const r = await fetch('/api/sdr/morse/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ frequency_hz: freq, wpm: wpm, tone_hz: tone })
-                });
-                const data = await r.json();
-                if (data.error) { alert(data.error); return; }
-                document.getElementById('morseStatus').textContent = 'Decoding...';
-                document.getElementById('morseStatus').style.color = 'var(--accent-green)';
-                document.getElementById('morseOutput').textContent = '';
-                if (morsePollInterval) clearInterval(morsePollInterval);
-                morsePollInterval = setInterval(pollMorseStatus, 1000);
-            } catch(e) { alert('Failed: ' + e.message); }
-        }
-
-        async function startMorseWithAudio() {
-            const freq = parseInt(document.getElementById('morseFreqInput').value);
-            if (!freq || freq < 100000) { alert('Enter a valid frequency in Hz'); return; }
-            // Start decoder
-            await startMorseDecoder();
-            // Also tune radio in CW mode for audio
-            try {
-                await fetch('/api/sdr/radio/tune', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ frequency_hz: freq, modulation: 'cw', squelch: -60 })
-                });
-                startAudioStream(12000);
-            } catch(e) { console.error('Audio tune failed:', e); }
-        }
-
-        async function stopMorseDecoder() {
-            if (morsePollInterval) { clearInterval(morsePollInterval); morsePollInterval = null; }
-            await fetch('/api/sdr/morse/stop', { method: 'POST' }).catch(() => {});
-            stopAudioStream();
-            await fetch('/api/sdr/radio/stop', { method: 'POST' }).catch(() => {});
-            document.getElementById('morseStatus').textContent = 'Stopped';
-            document.getElementById('morseStatus').style.color = 'var(--text-secondary)';
-        }
-
-        async function pollMorseStatus() {
-            try {
-                const r = await fetch('/api/sdr/morse/status');
-                const data = await r.json();
-                if (!data.running) {
-                    document.getElementById('morseStatus').textContent = 'Stopped';
-                    document.getElementById('morseStatus').style.color = 'var(--text-secondary)';
-                    if (morsePollInterval) { clearInterval(morsePollInterval); morsePollInterval = null; }
-                    return;
-                }
-                const el = document.getElementById('morseOutput');
-                if (data.decoded && data.decoded.length > 0) {
-                    el.textContent = data.decoded.map(d => d.text).join('\n');
-                    el.scrollTop = el.scrollHeight;
-                }
-            } catch(e) {}
-        }
 
         // About page population
         async function loadAboutPage() {
@@ -6145,120 +6267,6 @@
         // Search on Enter
         document.getElementById('contactSearch').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') searchContacts();
-        });
-
-        // ---- Flipper Zero ----
-        async function refreshFlipperStatus() {
-            try {
-                const resp = await safeFetchJson('/api/flipper/status');
-                if (resp) {
-                    document.getElementById('flipperConnStatus').textContent = resp.connected ? '✅ Connected' : '❌ Not Connected';
-                    document.getElementById('flipperConnStatus').style.color = resp.connected ? 'var(--accent-green)' : 'var(--accent-red)';
-                    document.getElementById('flipperBadge').textContent = resp.connected ? '1' : '--';
-                    if (resp.devices && resp.devices.length > 0) {
-                        document.getElementById('flipperPort').textContent = resp.devices[0];
-                    }
-                    if (resp.device_info) {
-                        document.getElementById('flipperFw').textContent = resp.device_info.firmware_version || '--';
-                        document.getElementById('flipperBattery').textContent = resp.device_info.battery_level != null ? resp.device_info.battery_level + '%' : '--';
-                        document.getElementById('flipperDeviceInfo').innerHTML = '<pre>' + JSON.stringify(resp.device_info, null, 2) + '</pre>';
-                    }
-                    if (!resp.feature_enabled) {
-                        document.getElementById('flipperDeviceInfo').innerHTML += '<div style="color:var(--accent-yellow);margin-top:0.5rem;">ℹ️ ' + (resp.hint || 'Build with --features flipper for full support') + '</div>';
-                    }
-                }
-            } catch(e) { console.error('Flipper status error:', e); }
-        }
-
-        async function flipperSubGhzCapture() {
-            const el = document.getElementById('flipperSubGhzResults');
-            el.innerHTML = '<div style="color:var(--accent-yellow);">📡 Capturing...</div>';
-            try {
-                const resp = await safeFetchJson('/api/flipper/subghz/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({frequency_mhz:433.92})});
-                if (resp) {
-                    el.innerHTML = '<pre>' + JSON.stringify(resp, null, 2) + '</pre>';
-                } else {
-                    el.innerHTML = '<div style="color:var(--accent-red);">No response</div>';
-                }
-            } catch(e) { el.innerHTML = '<div style="color:var(--accent-red);">Error: ' + e.message + '</div>'; }
-        }
-
-        // ---- WiFi Filter ----
-        async function toggleWifiFilter(enabled) {
-            try {
-                await safeFetchJson('/api/sdr/wifi-filter', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: enabled, exclude_known_wifi: enabled})
-                });
-            } catch(e) { console.error('WiFi filter error:', e); }
-        }
-
-        // ---- Intel Feed ----
-        async function generateIntelSummary() {
-            const el = document.getElementById('intelFeedList');
-            el.innerHTML = '<div style="color:var(--accent-yellow);text-align:center;padding:1rem;">🧠 Generating summary...</div>';
-            try {
-                const resp = await safeFetchJson('/api/intel/summary', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({context: 'User requested manual summary'})
-                });
-                await refreshIntelFeed();
-            } catch(e) {
-                el.innerHTML = '<div style="color:var(--accent-red);">Error: ' + e.message + '</div>';
-            }
-        }
-
-        async function refreshIntelFeed() {
-            try {
-                const resp = await safeFetchJson('/api/intel/feed');
-                const el = document.getElementById('intelFeedList');
-                if (resp && resp.entries && resp.entries.length > 0) {
-                    el.innerHTML = resp.entries.map(e => `
-                        <div style="border-bottom:1px solid var(--bg-tertiary);padding:0.75rem 0;">
-                            <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
-                                <span style="color:var(--accent-blue);font-size:0.8rem;">${e.type || 'summary'}</span>
-                                <span style="color:var(--text-secondary);font-size:0.75rem;">${new Date(e.timestamp).toLocaleString()}</span>
-                            </div>
-                            <div style="color:var(--text-primary);font-size:0.9rem;">${escapeHtml(e.message || '')}</div>
-                        </div>
-                    `).join('');
-                } else {
-                    el.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:2rem;">No intel entries yet.</div>';
-                }
-            } catch(e) { console.error('Intel feed error:', e); }
-        }
-
-        async function announceIntelSummary() {
-            try {
-                const feed = await safeFetchJson('/api/intel/feed');
-                if (feed && feed.entries && feed.entries.length > 0) {
-                    await safeFetchJson('/api/alerts/tts/announce', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({message: feed.entries[0].message})
-                    });
-                }
-            } catch(e) { console.error('TTS announce error:', e); }
-        }
-
-        async function toggleTtsAlerts(enabled) {
-            try {
-                await safeFetchJson('/api/alerts/tts/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: enabled})
-                });
-            } catch(e) { console.error('TTS config error:', e); }
-        }
-
-        // Load Flipper status on tab switch
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.dataset.tab === 'flipper') refreshFlipperStatus();
-                if (btn.dataset.tab === 'intel') refreshIntelFeed();
-            });
         });
     </script>
 </body>

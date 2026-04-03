@@ -694,7 +694,7 @@
                         <div>WiFi Interface</div>
                         <div class="description">Network interface for monitoring</div>
                     </label>
-                    <input type="text" class="text-input" id="wifiInterface" value="" placeholder="e.g. wlan0, wlan6">
+                    <input type="text" class="text-input" id="wifiInterface" value="wlan1">
                 </div>
                 <div class="setting-item">
                     <label>
@@ -1119,15 +1119,15 @@
 
         <!-- About -->
         <div class="settings-section" id="tab-about">
-            <h2 class="section-title">About SIGINT-Deck</h2>
+            <h2 class="section-title">About SIGINT-Pi</h2>
 
             <!-- About page with background image -->
             <div class="about-hero">
-                <img src="/images/about-hero.png" alt="SIGINT-Deck" class="about-hero-image">
+                <img src="/images/about-hero.png" alt="SIGINT-Pi" class="about-hero-image">
                 
                 <div class="about-content-overlay">
                     <div class="info-box main-title">
-                        <h1>SIGINT-Deck</h1>
+                        <h1>SIGINT-Pi</h1>
                         <p>Portable Signals Intelligence Platform</p>
                         <p class="version" id="aboutVersionMain">v0.3.0 | by sigkill</p>
                     </div>
@@ -1296,8 +1296,8 @@
                         </p>
                         <p style="margin-top: 0.75rem; font-size: 0.85rem;">
                             <strong>License:</strong> GPL-3.0-or-later<br>
-                            <strong>Repository:</strong> <a href="https://github.com/naanprofit/sigint-deck" target="_blank" style="color:var(--accent-blue);">github.com/naanprofit/sigint-deck</a><br>
-                            <strong>Full Legal Terms:</strong> <a href="https://github.com/naanprofit/sigint-deck/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">LEGAL.md</a>
+                            <strong>Repository:</strong> <a href="https://github.com/naanprofit/sigint-pi" target="_blank" style="color:var(--accent-blue);">github.com/naanprofit/sigint-pi</a><br>
+                            <strong>Full Legal Terms:</strong> <a href="https://github.com/naanprofit/sigint-pi/blob/main/LEGAL.md" target="_blank" style="color:var(--accent-blue);">LEGAL.md</a>
                         </p>
                         <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem;">
                             &copy; 2026 naanprofit &bull; GPL-3.0-or-later
@@ -1318,7 +1318,6 @@
                                 <li><strong>GPS:</strong> Requires external USB GPS receiver (u-blox recommended)</li>
                                 <li><strong>BLE:</strong> Built-in Bluetooth adapter or external USB dongle</li>
                                 <li><strong>RayHunter:</strong> Orbic MDM9207 phone with RayHunter firmware for IMSI catcher detection</li>
-                                <li><strong>Flipper Zero:</strong> Sub-GHz replay, RFID, IR via serial connection</li>
                                 <li><strong>Portable Operation:</strong> Use a powered USB hub for stable power delivery</li>
                             </ul>
                         </div>
@@ -1489,7 +1488,7 @@
 
             // Scanning
             document.getElementById('wifiEnabled').checked = s.wifi?.enabled !== false;
-            document.getElementById('wifiInterface').value = s.wifi?.interface || '';
+            document.getElementById('wifiInterface').value = s.wifi?.interface || 'wlan1';
             document.getElementById('attackDetection').checked = s.wifi?.attack_detection !== false;
             document.getElementById('pcapCapture').checked = s.wifi?.capture_pcap || false;
             document.getElementById('bleEnabled').checked = s.bluetooth?.enabled !== false;
@@ -1530,7 +1529,19 @@
             setStatus('statusBle', s.bluetooth?.enabled);
             setStatus('statusGps', s.gps?.enabled);
             setStatus('statusAttack', s.wifi?.attack_detection);
-            setStatus('statusPcap', s.wifi?.capture_pcap);
+            // Sync pcap status from runtime state (not just config)
+            try {
+                const pcapResp = await fetch('/api/pcap/status');
+                if (pcapResp.ok) {
+                    const pcapSt = await pcapResp.json();
+                    setStatus('statusPcap', pcapSt.capturing);
+                    document.getElementById('pcapCapture').checked = pcapSt.capturing;
+                } else {
+                    setStatus('statusPcap', s.wifi?.capture_pcap);
+                }
+            } catch(e) {
+                setStatus('statusPcap', s.wifi?.capture_pcap);
+            }
             setStatus('statusSound', s.alerts?.sound?.enabled);
             setStatus('statusNinja', s.alerts?.sound?.ninja_mode);
             setStatus('statusTelegram', s.alerts?.telegram?.enabled);
@@ -1608,6 +1619,14 @@
                 });
                 
                 if (response.ok) {
+                    // Sync runtime pcap capture with the saved config toggle
+                    const pcapEnabled = document.getElementById('pcapCapture').checked;
+                    const endpoint = pcapEnabled ? '/api/pcap/start' : '/api/pcap/stop';
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({})
+                    }).catch(() => {});
                     alert('Settings saved successfully!');
                 } else {
                     alert('Failed to save settings');
@@ -1648,7 +1667,7 @@
                 const ver = info.version || '0.3.0';
                 document.getElementById('aboutVersion').textContent = ver;
                 document.getElementById('aboutVersionMain').textContent = `v${ver} | by sigkill`;
-                document.getElementById('aboutPlatform').textContent = info.device_name || 'SIGINT-Deck';
+                document.getElementById('aboutPlatform').textContent = info.device_name || 'SIGINT-Pi';
                 document.getElementById('aboutDeviceId').textContent = info.device_name || '--';
                 document.getElementById('aboutUptime').textContent = formatUptime(info.uptime_seconds || 0);
             } catch (e) {
