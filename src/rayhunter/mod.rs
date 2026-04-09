@@ -79,23 +79,19 @@ impl RayHunterClient {
     pub async fn ensure_adb_forward(&self) -> bool {
         let port = self.config.api_url.split(':').last()
             .and_then(|p| p.trim_matches('/').parse::<u16>().ok())
-            .unwrap_or(8082);
+            .unwrap_or(8081);
         
         // Use full path and ensure HOME is set for ADB auth keys
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
-        let home_bin_adb = format!("{}/bin/adb", home);
-        let adb_path = if std::path::Path::new(&home_bin_adb).exists() {
-            home_bin_adb.as_str()
-        } else if std::path::Path::new("/usr/bin/adb").exists() {
+        let adb_path = if std::path::Path::new("/usr/bin/adb").exists() {
             "/usr/bin/adb"
         } else if std::path::Path::new("/usr/local/bin/adb").exists() {
             "/usr/local/bin/adb"
         } else {
             "adb"
         };
-        let adb_path = adb_path.to_string();
         
-        let adb_check = tokio::process::Command::new(&adb_path)
+        let adb_check = tokio::process::Command::new(adb_path)
             .env("HOME", &home)
             .env("ANDROID_SDK_HOME", &home)
             .args(&["devices"])
@@ -117,7 +113,7 @@ impl RayHunterClient {
             return false;
         }
         
-        let fwd = tokio::process::Command::new(&adb_path)
+        let fwd = tokio::process::Command::new(adb_path)
             .env("HOME", &home)
             .env("ANDROID_SDK_HOME", &home)
             .args(&["forward", &format!("tcp:{}", port), "tcp:8080"])

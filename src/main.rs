@@ -18,6 +18,9 @@ mod openclaw;
 mod meshtastic;
 mod sdr;
 mod flipper;
+mod soundboard;
+mod fastfood_rf;
+mod ml;
 
 #[cfg(feature = "simulation")]
 mod simulation;
@@ -69,7 +72,7 @@ async fn main() -> Result<()> {
     if help {
         println!("SIGINT-Deck - Signals Intelligence Security Scanner");
         println!();
-        println!("Usage: sigint-deck [OPTIONS]");
+        println!("Usage: sigint-pi [OPTIONS]");
         println!();
         println!("Options:");
         println!("  --tui, -t     Run in terminal UI mode");
@@ -131,7 +134,7 @@ async fn main() -> Result<()> {
     db.migrate().await?;
     info!("Database initialized");
 
-    let (event_tx, _) = broadcast::channel::<ScanEvent>(1000);
+    let (event_tx, _) = broadcast::channel::<ScanEvent>(4096);
     let db = Arc::new(db);
     let config = Arc::new(config);
 

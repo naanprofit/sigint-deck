@@ -56,22 +56,7 @@ impl DeviceLearner {
 
     pub async fn run(&self, rx: &mut broadcast::Receiver<ScanEvent>) {
         let mut learner = self.clone_state();
-
-        // Ensure default location exists so device upserts don't fail on FK constraint
-        match learner.db.get_or_create_location(
-            &learner.config.device.location_name,
-            None,
-            None,
-        ).await {
-            Ok(loc_id) => {
-                learner.current_location_id = loc_id;
-                info!("Baseline engine: using location id={} ('{}')", loc_id, learner.config.device.location_name);
-            }
-            Err(e) => {
-                warn!("Failed to create default location: {}. Using location_id=1", e);
-            }
-        }
-
+        
         loop {
             match rx.recv().await {
                 Ok(event) => {
@@ -200,22 +185,15 @@ impl DeviceLearnerState {
             device_with_vendor.vendor = OUI_LOOKUP.lookup(&device.mac_address).map(|s| s.to_string());
         }
         
-        match self.db.upsert_wifi_device(&device_with_vendor, self.current_location_id).await {
-            Ok(device_id) => {
-                if let Err(e) = self.db.record_sighting(
-                    device_id,
-                    "wifi",
-                    device.rssi,
-                    Some(device.channel),
-                    device.ssid.as_deref(),
-                    self.current_position.as_ref(),
-                ).await {
-                    warn!("Failed to record WiFi sighting: {}", e);
-                }
-            }
-            Err(e) => {
-                warn!("Failed to upsert WiFi device {}: {}", device.mac_address, e);
-            }
+        if let Ok(device_id) = self.db.upsert_wifi_device(&device_with_vendor, self.current_location_id).await {
+            let _ = self.db.record_sighting(
+                device_id,
+                "wifi",
+                device.rssi,
+                Some(device.channel),
+                device.ssid.as_deref(),
+                self.current_position.as_ref(),
+            ).await;
         }
     }
 
@@ -259,22 +237,15 @@ impl DeviceLearnerState {
             device_with_vendor.vendor = OUI_LOOKUP.lookup(&device.mac_address).map(|s| s.to_string());
         }
         
-        match self.db.upsert_ble_device(&device_with_vendor, self.current_location_id).await {
-            Ok(device_id) => {
-                if let Err(e) = self.db.record_sighting(
-                    device_id,
-                    "ble",
-                    device.rssi,
-                    None,
-                    None,
-                    self.current_position.as_ref(),
-                ).await {
-                    warn!("Failed to record BLE sighting: {}", e);
-                }
-            }
-            Err(e) => {
-                warn!("Failed to upsert BLE device {}: {}", device.mac_address, e);
-            }
+        if let Ok(device_id) = self.db.upsert_ble_device(&device_with_vendor, self.current_location_id).await {
+            let _ = self.db.record_sighting(
+                device_id,
+                "ble",
+                device.rssi,
+                None,
+                None,
+                self.current_position.as_ref(),
+            ).await;
         }
     }
 
