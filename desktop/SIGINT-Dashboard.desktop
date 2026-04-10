@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SIGINT Dashboard
+Comment=Open SIGINT-Deck web dashboard
+Exec=xdg-open http://localhost:8085
+Icon=internet-web-browser
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+Keywords=sigint;dashboard;

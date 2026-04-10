@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SIGINT-Deck Stop
+Comment=Stop SIGINT signals intelligence monitoring
+Exec=/home/deck/sigint-stop.sh
+Icon=network-offline
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+Keywords=sigint;monitor;security;stop;
