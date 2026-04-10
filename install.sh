@@ -275,7 +275,7 @@ retention_days = 30
 [web]
 enabled = true
 bind_address = "0.0.0.0"
-port = 8080
+port = 8085
 
 [learning]
 enabled = true
@@ -516,9 +516,10 @@ EOF
         echo "$SUDOERS_MONITOR" | sudo tee -a /etc/sudoers.d/sigint-deck > /dev/null
     fi
 
-    # Reload and enable
+    # Reload (do NOT auto-enable sigint-deck -- manual start via shortcuts)
     systemctl --user daemon-reload
-    systemctl --user enable sigint-deck.service
+    # sigint-deck is NOT enabled by default -- start manually via desktop shortcut or Steam
+    # systemctl --user enable sigint-deck.service
     systemctl --user enable channel-hop.service
     systemctl --user enable sigint-monitor-mode.service
     
@@ -530,47 +531,83 @@ EOF
 
 # Create desktop launcher
 create_desktop_launcher() {
-    echo -e "${BLUE}Creating desktop launcher...${NC}"
+    echo -e "${BLUE}Creating desktop and Steam shortcuts...${NC}"
     
     mkdir -p "$HOME/.local/share/applications"
-    
-    # Create launch script
-    cat > "$INSTALL_DIR/launch.sh" << 'EOF'
+    mkdir -p "$HOME/Desktop"
+    mkdir -p "$INSTALL_DIR/data"
+
+    # Start script
+    cat > "$HOME/sigint-start.sh" << 'STARTEOF'
 #!/bin/bash
-INSTALL_DIR="$HOME/sigint-deck"
-DASHBOARD_URL="http://localhost:8080"
+systemctl --user start sigint-deck
+sleep 2
+if systemctl --user is-active sigint-deck >/dev/null 2>&1; then
+    notify-send "SIGINT-Deck" "Monitoring started on http://localhost:8085" -i network-wireless 2>/dev/null
+    echo "SIGINT-Deck started. Dashboard: http://localhost:8085"
+else
+    notify-send "SIGINT-Deck" "Failed to start! Check: journalctl --user -u sigint-deck" -i dialog-error 2>/dev/null
+    echo "Failed to start."
+fi
+STARTEOF
+    chmod +x "$HOME/sigint-start.sh"
 
-# Ensure services are running
-systemctl --user start sigint-deck.service 2>/dev/null
-systemctl --user start channel-hop.service 2>/dev/null
+    # Stop script
+    cat > "$HOME/sigint-stop.sh" << 'STOPEOF'
+#!/bin/bash
+systemctl --user stop sigint-deck
+sleep 1
+if ! systemctl --user is-active sigint-deck >/dev/null 2>&1; then
+    notify-send "SIGINT-Deck" "Monitoring stopped" -i network-offline 2>/dev/null
+    echo "SIGINT-Deck stopped."
+else
+    echo "Failed to stop."
+fi
+STOPEOF
+    chmod +x "$HOME/sigint-stop.sh"
 
-# Wait for dashboard
-for i in {1..30}; do
-    curl -s "$DASHBOARD_URL/api/status" > /dev/null 2>&1 && break
+    # Steam game mode launch script (starts service, opens dashboard, stops on exit)
+    cat > "$INSTALL_DIR/launch-steam.sh" << 'STEAMEOF'
+#!/bin/bash
+systemctl --user start sigint-deck
+sleep 2
+for i in $(seq 1 10); do
+    curl -s http://localhost:8085/ >/dev/null 2>&1 && break
     sleep 1
 done
+if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    xdg-open http://localhost:8085 2>/dev/null &
+fi
+echo "SIGINT-Deck monitoring active. Dashboard: http://localhost:8085"
+echo "Press Ctrl+C or close this window to stop."
+trap "systemctl --user stop sigint-deck; echo Stopped." EXIT
+while systemctl --user is-active sigint-deck >/dev/null 2>&1; do sleep 5; done
+STEAMEOF
+    chmod +x "$INSTALL_DIR/launch-steam.sh"
 
-# Open dashboard
-xdg-open "$DASHBOARD_URL" 2>/dev/null || echo "Dashboard: $DASHBOARD_URL"
-EOF
-    chmod +x "$INSTALL_DIR/launch.sh"
-    
-    # Create desktop entry
-    cat > "$HOME/.local/share/applications/sigint-deck.desktop" << EOF
+    # Desktop shortcuts
+    for shortcut in \
+        "SIGINT-Start:Start SIGINT signals intelligence monitoring:$HOME/sigint-start.sh:network-wireless" \
+        "SIGINT-Stop:Stop SIGINT signals intelligence monitoring:$HOME/sigint-stop.sh:network-offline" \
+        "SIGINT-Dashboard:Open SIGINT-Deck web dashboard:xdg-open http\://localhost\:8085:internet-web-browser"; do
+        IFS=: read -r name comment exec icon <<< "$shortcut"
+        for dest in "$HOME/Desktop" "$HOME/.local/share/applications"; do
+            cat > "$dest/${name}.desktop" << DEOF
 [Desktop Entry]
-Name=SIGINT-Deck
-Comment=Signals Intelligence Security Scanner
-Exec=$INSTALL_DIR/launch.sh
-Icon=network-wireless
+Name=$name
+Comment=$comment
+Exec=$exec
+Icon=$icon
 Terminal=false
 Type=Application
-Categories=Network;Security;
-EOF
-    
-    # Update desktop database
+Categories=Utility;Network;
+DEOF
+            chmod +x "$dest/${name}.desktop"
+        done
+    done
+
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-    
-    echo -e "${GREEN}✓ Desktop launcher created${NC}"
+    echo -e "${GREEN}✓ Desktop and Steam shortcuts created${NC}"
 }
 
 # Create Steam launch script
@@ -580,7 +617,7 @@ create_steam_launcher() {
     cat > "$INSTALL_DIR/launch-in-steam.sh" << 'STEAMSCRIPT'
 #!/bin/bash
 INSTALL_DIR="$HOME/sigint-deck"
-DASHBOARD_URL="http://localhost:8080"
+DASHBOARD_URL="http://localhost:8085"
 
 # Ensure services running
 systemctl --user start sigint-deck.service 2>/dev/null
@@ -869,7 +906,7 @@ print_summary() {
     # Check if running
     if systemctl --user is-active sigint-deck >/dev/null 2>&1; then
         echo -e "${GREEN}✓ SIGINT-Deck is running${NC}"
-        echo -e "${GREEN}✓ Dashboard: http://localhost:8080${NC}"
+        echo -e "${GREEN}✓ Dashboard: http://localhost:8085${NC}"
     else
         echo -e "${YELLOW}⚠ Service may need manual start (see troubleshooting below)${NC}"
     fi
