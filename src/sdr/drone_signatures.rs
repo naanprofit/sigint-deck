@@ -380,33 +380,9 @@ pub fn parse_nan_remoteid(frame_body: &[u8]) -> Option<RemoteIdData> {
     if frame_body[5] != NAN_OUI_TYPE {
         return None;
     }
-    // NAN body contains service discovery frames with ODID payloads
-    // Parse the NAN attributes to find ODID service data
-    let nan_body = &frame_body[6..];
-    parse_odid_from_nan(nan_body)
-}
-
-fn parse_odid_from_nan(data: &[u8]) -> Option<RemoteIdData> {
-    // NAN attributes are TLV: AttrID(1) | Length(2-LE) | Body
-    let mut offset = 0;
-    while offset + 3 <= data.len() {
-        let attr_id = data[offset];
-        let attr_len = u16::from_le_bytes([data[offset + 1], data[offset + 2]]) as usize;
-        offset += 3;
-        if offset + attr_len > data.len() {
-            break;
-        }
-        // Service Discovery Frame (attr_id = 0x03) may contain ODID
-        if attr_id == 0x03 && attr_len > 6 {
-            let sdf = &data[offset..offset + attr_len];
-            if let Some(rid) = try_parse_odid_payload(sdf) {
-                return Some(rid);
-            }
-        }
-        offset += attr_len;
-    }
-    // Fallback: try parsing entire NAN body as ODID
-    try_parse_odid_payload(data)
+    // NAN Service Descriptor Attribute: service info = counter | message pack
+    let rid = remoteid::wifi::parse_nan_action(frame_body).ok()?;
+    parse_odid_message(rid.payload)
 }
 
 /// Parse vendor-specific IE in beacon for DJI DroneID
@@ -481,11 +457,9 @@ pub fn try_parse_odid_payload(data: &[u8]) -> Option<RemoteIdData> {
             && data[i + 1] == 0xFA
             && data[i + 2] == 0xFF
         {
-            let msg_start = i + 3;
-            if msg_start + 2 > data.len() {
-                return None;
-            }
-            return parse_odid_message(&data[msg_start..]);
+            // UUID is followed by app code 0x0D and a message counter
+            let rid = remoteid::ble::parse_service_data(&data[i + 3..]).ok()?;
+            return parse_odid_message(rid.payload);
         }
     }
     // Try raw ODID (no AD wrapper)
@@ -500,129 +474,44 @@ pub fn try_parse_odid_payload(data: &[u8]) -> Option<RemoteIdData> {
 }
 
 fn parse_odid_message(data: &[u8]) -> Option<RemoteIdData> {
-    if data.len() < 2 {
-        return None;
-    }
-    let msg_type = OdidMessageType::from_byte(data[0]);
-    let proto_ver = data[0] & 0x0F;
-
-    match msg_type {
-        OdidMessageType::BasicId => parse_odid_basic_id(data, proto_ver),
-        OdidMessageType::LocationVector => parse_odid_location(data, proto_ver),
-        OdidMessageType::System => parse_odid_system(data, proto_ver),
-        OdidMessageType::OperatorId => parse_odid_operator(data, proto_ver),
-        OdidMessageType::MessagePack => {
-            // Message pack: counter(1) | size(1) | count(1) | messages...
-            if data.len() > 4 {
-                let msg_size = data[2] as usize;
-                let msg_count = data[3] as usize;
-                let mut offset = 4;
-                for _ in 0..msg_count {
-                    if offset + msg_size > data.len() { break; }
-                    if let Some(rid) = parse_odid_message(&data[offset..offset + msg_size]) {
-                        return Some(rid);
-                    }
-                    offset += msg_size;
-                }
-            }
-            None
-        }
-        _ => Some(RemoteIdData {
-            msg_type,
-            protocol_version: proto_ver,
-            uas_id: None, latitude: None, longitude: None,
-            altitude_m: None, height_agl_m: None, speed_mps: None,
-            heading_deg: None, operator_id: None,
-            operator_lat: None, operator_lon: None,
+    match remoteid::Frame::decode(data).ok()? {
+        remoteid::Frame::Message(m) => Some(to_remote_id_data(data[0], m)),
+        remoteid::Frame::Pack(pack) => pack.raw_messages().find_map(|raw| {
+            remoteid::Message::decode(raw)
+                .ok()
+                .map(|m| to_remote_id_data(raw[0], m))
         }),
     }
 }
 
-fn parse_odid_basic_id(data: &[u8], proto_ver: u8) -> Option<RemoteIdData> {
-    // Byte 1: ID Type (4 bits) | UA Type (4 bits)
-    // Bytes 2-21: UAS ID (20 bytes, null-padded ASCII)
-    if data.len() < 22 { return None; }
-    let uas_id = String::from_utf8_lossy(&data[2..22])
-        .trim_matches('\0')
-        .to_string();
-    Some(RemoteIdData {
-        msg_type: OdidMessageType::BasicId,
-        protocol_version: proto_ver,
-        uas_id: if uas_id.is_empty() { None } else { Some(uas_id) },
-        latitude: None, longitude: None, altitude_m: None,
-        height_agl_m: None, speed_mps: None, heading_deg: None,
-        operator_id: None, operator_lat: None, operator_lon: None,
-    })
-}
-
-fn parse_odid_location(data: &[u8], proto_ver: u8) -> Option<RemoteIdData> {
-    // Byte 1: Status(4) | HeightType(1) | EWDirection(1) | SpeedMult(1) | reserved
-    // Byte 2: Direction (degrees)
-    // Byte 3-4: Speed (u16, 0.25 m/s or 0.75 m/s units based on SpeedMult)
-    // Byte 5-6: Vertical speed (i16, 0.5 m/s units)
-    // Bytes 7-10: Latitude (i32, 1e-7 degrees)
-    // Bytes 11-14: Longitude (i32, 1e-7 degrees)
-    // Bytes 15-16: Pressure altitude (u16, 0.5m units, offset -1000m)
-    // Bytes 17-18: Geodetic altitude (u16, 0.5m units, offset -1000m)
-    // Bytes 19-20: Height AGL (u16, 0.5m units, offset -1000m)
-    if data.len() < 21 { return None; }
-    let direction = data[2] as f32 * if (data[1] & 0x04) != 0 { 1.0 } else { 1.0 };
-    let speed_raw = u16::from_le_bytes([data[3], data[4]]);
-    let speed_mult = if (data[1] & 0x02) != 0 { 0.75 } else { 0.25 };
-    let speed = speed_raw as f32 * speed_mult;
-    let lat = i32::from_le_bytes([data[7], data[8], data[9], data[10]]) as f64 / 1e7;
-    let lon = i32::from_le_bytes([data[11], data[12], data[13], data[14]]) as f64 / 1e7;
-    let alt_raw = u16::from_le_bytes([data[15], data[16]]);
-    let alt = alt_raw as f32 * 0.5 - 1000.0;
-    let height_raw = u16::from_le_bytes([data[19], data[20]]);
-    let height = height_raw as f32 * 0.5 - 1000.0;
-
-    Some(RemoteIdData {
-        msg_type: OdidMessageType::LocationVector,
-        protocol_version: proto_ver,
-        uas_id: None,
-        latitude: if lat.abs() > 0.001 { Some(lat) } else { None },
-        longitude: if lon.abs() > 0.001 { Some(lon) } else { None },
-        altitude_m: Some(alt),
-        height_agl_m: Some(height),
-        speed_mps: Some(speed),
-        heading_deg: Some(direction),
-        operator_id: None, operator_lat: None, operator_lon: None,
-    })
-}
-
-fn parse_odid_system(data: &[u8], proto_ver: u8) -> Option<RemoteIdData> {
-    // Bytes 2-5: Operator Latitude (i32, 1e-7 degrees)
-    // Bytes 6-9: Operator Longitude (i32, 1e-7 degrees)
-    if data.len() < 10 { return None; }
-    let op_lat = i32::from_le_bytes([data[2], data[3], data[4], data[5]]) as f64 / 1e7;
-    let op_lon = i32::from_le_bytes([data[6], data[7], data[8], data[9]]) as f64 / 1e7;
-    Some(RemoteIdData {
-        msg_type: OdidMessageType::System,
-        protocol_version: proto_ver,
+fn to_remote_id_data(header: u8, msg: remoteid::Message) -> RemoteIdData {
+    let coord = |v: f64| if v.abs() > 0.001 { Some(v) } else { None };
+    let mut rid = RemoteIdData {
+        msg_type: OdidMessageType::from_byte(header),
+        protocol_version: header & 0x0F,
         uas_id: None, latitude: None, longitude: None,
-        altitude_m: None, height_agl_m: None, speed_mps: None, heading_deg: None,
-        operator_id: None,
-        operator_lat: if op_lat.abs() > 0.001 { Some(op_lat) } else { None },
-        operator_lon: if op_lon.abs() > 0.001 { Some(op_lon) } else { None },
-    })
-}
-
-fn parse_odid_operator(data: &[u8], proto_ver: u8) -> Option<RemoteIdData> {
-    // Byte 1: Operator ID type
-    // Bytes 2-21: Operator ID (20 bytes ASCII)
-    if data.len() < 22 { return None; }
-    let op_id = String::from_utf8_lossy(&data[2..22])
-        .trim_matches('\0')
-        .to_string();
-    Some(RemoteIdData {
-        msg_type: OdidMessageType::OperatorId,
-        protocol_version: proto_ver,
-        uas_id: None, latitude: None, longitude: None,
-        altitude_m: None, height_agl_m: None, speed_mps: None, heading_deg: None,
-        operator_id: if op_id.is_empty() { None } else { Some(op_id) },
+        altitude_m: None, height_agl_m: None, speed_mps: None,
+        heading_deg: None, operator_id: None,
         operator_lat: None, operator_lon: None,
-    })
+    };
+    match msg {
+        remoteid::Message::BasicId(b) => rid.uas_id = b.uas_id_str().map(str::to_string),
+        remoteid::Message::Location(l) => {
+            rid.latitude = coord(l.latitude);
+            rid.longitude = coord(l.longitude);
+            rid.altitude_m = l.altitude_geo;
+            rid.height_agl_m = l.height;
+            rid.speed_mps = l.speed_horizontal;
+            rid.heading_deg = l.direction;
+        }
+        remoteid::Message::System(sys) => {
+            rid.operator_lat = coord(sys.operator_latitude);
+            rid.operator_lon = coord(sys.operator_longitude);
+        }
+        remoteid::Message::OperatorId(o) => rid.operator_id = o.operator_id_str().map(str::to_string),
+        _ => {}
+    }
+    rid
 }
 
 /// Scan beacon frame body for vendor-specific IEs containing DJI DroneID
@@ -649,8 +538,9 @@ pub fn scan_beacon_for_droneid(frame_body: &[u8]) -> Option<DjiDroneIdData> {
 pub fn parse_ble_odid(manufacturer_data: &[(u16, Vec<u8>)], service_data: &[(u16, Vec<u8>)]) -> Option<RemoteIdData> {
     // Check service data for UUID 0xFFFA
     for (uuid, data) in service_data {
-        if *uuid == ODID_BLE_SERVICE_UUID && data.len() >= 2 {
-            return parse_odid_message(data);
+        if *uuid == ODID_BLE_SERVICE_UUID {
+            let rid = remoteid::ble::parse_service_data(data).ok()?;
+            return parse_odid_message(rid.payload);
         }
     }
     // Check manufacturer data for DJI company ID
@@ -693,3 +583,42 @@ pub const FPV_58_FREQUENCIES: &[(& str, &[(& str, u32)])] = &[
         ("R5", 5806), ("R6", 5843), ("R7", 5880), ("R8", 5917),
     ]),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use remoteid::{BasicId, IdType, Location, Message, UaType};
+
+    fn ble_service_data(msg: &Message) -> Vec<u8> {
+        // App code 0x0D, message counter, then the 25 byte message
+        let mut data = vec![ODID_APP_CODE, 7];
+        data.extend_from_slice(&msg.encode().unwrap());
+        data
+    }
+
+    #[test]
+    fn ble_service_data_location_skips_app_code_and_counter() {
+        let loc = Message::Location(Location {
+            latitude: 37.7749,
+            longitude: -122.4194,
+            ..Location::default()
+        });
+        let data = ble_service_data(&loc);
+        let rid = parse_ble_odid(&[], &[(ODID_BLE_SERVICE_UUID, data)]).unwrap();
+        assert_eq!(rid.msg_type, OdidMessageType::LocationVector);
+        assert!((rid.latitude.unwrap() - 37.7749).abs() < 1e-6);
+        assert!((rid.longitude.unwrap() + 122.4194).abs() < 1e-6);
+    }
+
+    #[test]
+    fn ad_wrapped_basic_id_reads_serial() {
+        let id = Message::BasicId(
+            BasicId::new(IdType::SerialNumber, UaType::HelicopterOrMultirotor, "1596F3507452").unwrap(),
+        );
+        let mut adv = vec![ODID_AD_TYPE_SERVICE_DATA, 0xFA, 0xFF];
+        adv.extend(ble_service_data(&id));
+        let rid = try_parse_odid_payload(&adv).unwrap();
+        assert_eq!(rid.msg_type, OdidMessageType::BasicId);
+        assert_eq!(rid.uas_id.as_deref(), Some("1596F3507452"));
+    }
+}

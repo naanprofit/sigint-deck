@@ -70,6 +70,8 @@ macaddr = "1.0"
 # Hex encoding
 hex = "0.4"
 
+remoteid = "0.3.2"
+
 # UUID generation
 uuid = { version = "1.7", features = ["v4"] }
 
